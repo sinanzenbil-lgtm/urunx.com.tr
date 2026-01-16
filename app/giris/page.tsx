@@ -248,7 +248,7 @@ export default function EntryPage() {
                                             onClick={() => handleSearchResultClick(item)}
                                         >
                                             <div className="w-10 h-10 bg-zinc-800 rounded-md flex items-center justify-center overflow-hidden">
-                                                {item.image ? <img src={item.image} className="w-full h-full object-cover" /> : <Scan className="w-5 h-5 text-zinc-600" />}
+                                                {item.image ? <img src={item.image} className="w-full h-full object-contain p-0.5" /> : <Scan className="w-5 h-5 text-zinc-600" />}
                                             </div>
                                             <div>
                                                 <div className="font-medium text-white">{item.name}</div>

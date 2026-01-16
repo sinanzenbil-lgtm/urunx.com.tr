@@ -199,7 +199,7 @@ export default function ProductsPage() {
                                             <td className="px-6 py-4">
                                                 <div className="w-24 h-24 bg-zinc-900 rounded-lg border border-zinc-800 flex items-center justify-center overflow-hidden">
                                                     {item.image ? (
-                                                        <img src={item.image} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                                                        <img src={item.image} alt={item.name} className="w-full h-full object-contain p-1 group-hover:scale-105 transition-transform duration-500" />
                                                     ) : (
                                                         <Package className="w-8 h-8 text-zinc-700" />
                                                     )}

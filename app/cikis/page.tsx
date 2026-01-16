@@ -201,7 +201,7 @@ export default function ExitPage() {
                                             onClick={() => handleSearchSelect(item)}
                                         >
                                             <div className="w-10 h-10 bg-zinc-800 rounded-md flex items-center justify-center overflow-hidden flex-shrink-0">
-                                                {item.image ? <img src={item.image} className="w-full h-full object-cover" /> : <Scan className="w-5 h-5 text-zinc-600" />}
+                                                {item.image ? <img src={item.image} className="w-full h-full object-contain p-0.5" /> : <Scan className="w-5 h-5 text-zinc-600" />}
                                             </div>
                                             <div className="flex-1">
                                                 <div className="font-medium text-white">{item.name}</div>
@@ -233,7 +233,7 @@ export default function ExitPage() {
                                     <div className="flex items-center gap-4 flex-1">
                                         <div className="w-16 h-16 bg-zinc-950 rounded-lg border border-zinc-800 flex items-center justify-center overflow-hidden flex-shrink-0">
                                             {item.stockItem.image ? (
-                                                <img src={item.stockItem.image} alt={item.stockItem.name} className="w-full h-full object-cover" />
+                                                <img src={item.stockItem.image} alt={item.stockItem.name} className="w-full h-full object-contain p-0.5" />
                                             ) : (
                                                 <Package className="w-8 h-8 text-zinc-700" />
                                             )}
