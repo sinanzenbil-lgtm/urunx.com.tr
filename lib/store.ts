@@ -52,6 +52,24 @@ export const useStockStore = create<StockStore>()(
             login: (user) => set({ user, isAuthenticated: true }),
             logout: () => set({ user: null, isAuthenticated: false }),
             setItems: (items) => set({ items }),
+            removeTransactions: (ids) => set((state) => ({
+                items: state.items.map(item => {
+                    const txsToRemove = item.transactions.filter(t => ids.includes(t.id));
+                    if (txsToRemove.length === 0) return item;
+
+                    let qtyAdjustment = 0;
+                    txsToRemove.forEach(t => {
+                        qtyAdjustment += (t.type === 'IN' ? -t.quantity : t.quantity);
+                    });
+
+                    return {
+                        ...item,
+                        quantity: item.quantity + qtyAdjustment,
+                        transactions: item.transactions.filter(t => !ids.includes(t.id)),
+                        updatedAt: new Date().toISOString()
+                    };
+                })
+            })),
         }),
         {
             name: 'urunx-storage', // Rebranding storage name

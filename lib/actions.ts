@@ -182,3 +182,40 @@ export async function bulkRemoveItems(ids: string[]) {
         return { success: false, error };
     }
 }
+
+export async function removeTransactions(transactionIds: string[]) {
+    try {
+        const transactions = await sql`
+            SELECT id, item_id, type, quantity 
+            FROM transactions 
+            WHERE id = ANY(${transactionIds})
+        `;
+
+        if (transactions.length === 0) return { success: true };
+
+        const adjustments: Record<string, number> = {};
+        for (const t of transactions) {
+            const itemId = t.item_id as string;
+            const qty = Number(t.quantity);
+            const change = t.type === 'IN' ? -qty : qty;
+            adjustments[itemId] = (adjustments[itemId] || 0) + change;
+        }
+
+        for (const [itemId, change] of Object.entries(adjustments)) {
+            await sql`
+                UPDATE items 
+                SET quantity = quantity + ${change}, 
+                    updated_at = ${new Date().toISOString()}
+                WHERE id = ${itemId}
+            `;
+        }
+        await sql`DELETE FROM transactions WHERE id = ANY(${transactionIds})`;
+
+        revalidatePath('/urunler');
+        revalidatePath('/hareketler');
+        return { success: true };
+    } catch (error) {
+        console.error('Error removing transactions:', error);
+        return { success: false, error };
+    }
+}

@@ -43,4 +43,5 @@ export interface StockStore {
     login: (user: User) => void;
     logout: () => void;
     setItems: (items: StockItem[]) => void;
+    removeTransactions: (ids: string[]) => void;
 }
