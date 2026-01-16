@@ -38,7 +38,7 @@ export default function LoginPage() {
 
             const simulatedUser = {
                 email,
-                companyName: 'Demo Company' // Default if we don't look up
+                companyName: 'SPEEDSPOR'
             };
 
             // CHECK: Does the user expect persistent strict auth? 

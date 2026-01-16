@@ -52,11 +52,9 @@ export default function Navbar() {
                         <Package size={20} />
                     </div>
                     <span>URUNX</span>
-                    {user?.companyName && (
-                        <span className="hidden sm:inline font-normal text-zinc-500 text-sm border-l border-white/10 pl-2">
-                            {user.companyName}
-                        </span>
-                    )}
+                    <span className="hidden sm:inline font-normal text-zinc-500 text-sm border-l border-white/10 pl-2">
+                        {user?.companyName === 'Demo Company' ? 'SPEEDSPOR' : (user?.companyName || 'SPEEDSPOR')}
+                    </span>
                 </Link>
                 <div className="flex items-center gap-1 md:gap-2">
                     {routes.map((route) => {

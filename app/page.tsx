@@ -33,12 +33,6 @@ export default function Home() {
     <div className="space-y-6 animate-enter">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">Özet Paneli</h1>
-        <Link href="/giris?mode=new">
-          <Button size="lg" className="gap-2 bg-purple-600 hover:bg-purple-700 text-white border border-purple-500 shadow-[0_0_15px_-3px_rgba(147,51,234,0.5)]">
-            <Plus className="w-5 h-5" />
-            Yeni Ürün Ekle
-          </Button>
-        </Link>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
