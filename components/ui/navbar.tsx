@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useStockStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, LogIn, LogOut, Search, Package, History } from 'lucide-react';
+import { LayoutDashboard, LogIn, LogOut, Search, Package, History, BarChart3 } from 'lucide-react';
 
 export default function Navbar() {
     const pathname = usePathname();
@@ -39,6 +39,11 @@ export default function Navbar() {
             href: '/ara',
             label: 'Stok Ara',
             icon: Search,
+        },
+        {
+            href: '/raporlar',
+            label: 'Raporlar',
+            icon: BarChart3,
         },
     ];
 
