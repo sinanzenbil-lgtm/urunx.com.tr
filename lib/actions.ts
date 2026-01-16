@@ -143,3 +143,14 @@ export async function bulkAddItems(items: StockItem[]) {
         return { success: false, error };
     }
 }
+
+export async function bulkRemoveItems(ids: string[]) {
+    try {
+        await sql`DELETE FROM items WHERE id = ANY(${ids})`;
+        revalidatePath('/urunler');
+        return { success: true };
+    } catch (error) {
+        console.error('Error bulk removing items:', error);
+        return { success: false, error };
+    }
+}

@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { StockItem } from '@/types';
 import { Package, Scan, Search, Edit, X, PlusCircle, MinusCircle, Trash2 } from 'lucide-react';
 import * as dbActions from '@/lib/actions';
+import { cn } from '@/lib/utils';
 
 export default function ProductsPage() {
     const items = useStockStore((state) => state.items);
@@ -22,6 +23,8 @@ export default function ProductsPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [editingItem, setEditingItem] = useState<StockItem | null>(null);
     const [deletingId, setDeletingId] = useState<string | null>(null);
+    const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
     const [transactionModal, setTransactionModal] = useState<{ item: StockItem, type: 'IN' | 'OUT' } | null>(null);
 
     const filteredItems = items.filter((item) =>
@@ -30,6 +33,34 @@ export default function ProductsPage() {
         item.stockCode?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.brand?.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    const toggleSelectAll = () => {
+        if (selectedIds.length === filteredItems.length) {
+            setSelectedIds([]);
+        } else {
+            setSelectedIds(filteredItems.map(item => item.id));
+        }
+    };
+
+    const toggleSelect = (id: string) => {
+        setSelectedIds(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
+    const handleBulkDelete = async () => {
+        if (selectedIds.length === 0) return;
+
+        const result = await dbActions.bulkRemoveItems(selectedIds);
+        if (result.success) {
+            selectedIds.forEach(id => removeItem(id));
+            toast.success('Seçili ürünler silindi');
+            setSelectedIds([]);
+            setIsBulkDeleteOpen(false);
+        } else {
+            toast.error('Silme işlemi başarısız');
+        }
+    };
 
     const handleUpdate = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -89,6 +120,16 @@ export default function ProductsPage() {
                         <p className="text-zinc-500">Kayıtlı tüm ürünler ({items.length})</p>
                     </div>
                     <div className="flex gap-2">
+                        {selectedIds.length > 0 && (
+                            <Button
+                                variant="destructive"
+                                onClick={() => setIsBulkDeleteOpen(true)}
+                                className="gap-2 animate-in fade-in slide-in-from-right-2"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                                Seçilenleri Sil ({selectedIds.length})
+                            </Button>
+                        )}
                         <ExcelImportModal />
                         <Link href="/giris?mode=new">
                             <Button className="gap-2 bg-green-600 hover:bg-green-700 text-white shadow-[0_0_15px_-3px_rgba(22,163,74,0.5)]">
@@ -115,6 +156,14 @@ export default function ProductsPage() {
                         <table className="w-full text-sm text-left">
                             <thead className="bg-zinc-900 border-b border-zinc-800 text-xs uppercase text-zinc-400">
                                 <tr>
+                                    <th className="px-4 py-4 w-10">
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedIds.length > 0 && selectedIds.length === filteredItems.length}
+                                            onChange={toggleSelectAll}
+                                            className="w-4 h-4 accent-primary rounded"
+                                        />
+                                    </th>
                                     <th className="px-6 py-4 w-[120px]">Görsel</th>
                                     <th className="px-6 py-4">Marka</th>
                                     <th className="px-6 py-4">Ürün Bilgisi</th>
@@ -135,7 +184,18 @@ export default function ProductsPage() {
                                     </tr>
                                 ) : (
                                     filteredItems.map((item) => (
-                                        <tr key={item.id} className="hover:bg-zinc-900/50 transition-colors group">
+                                        <tr key={item.id} className={cn(
+                                            "hover:bg-zinc-900/50 transition-colors group",
+                                            selectedIds.includes(item.id) && "bg-primary/5"
+                                        )}>
+                                            <td className="px-4 py-4">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedIds.includes(item.id)}
+                                                    onChange={() => toggleSelect(item.id)}
+                                                    className="w-4 h-4 accent-primary rounded"
+                                                />
+                                            </td>
                                             <td className="px-6 py-4">
                                                 <div className="w-24 h-24 bg-zinc-900 rounded-lg border border-zinc-800 flex items-center justify-center overflow-hidden">
                                                     {item.image ? (
@@ -364,6 +424,32 @@ export default function ProductsPage() {
                             }}
                         >
                             Evet, Sil
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Bulk Delete Confirmation Dialog */}
+            <Dialog open={isBulkDeleteOpen} onOpenChange={setIsBulkDeleteOpen}>
+                <DialogContent className="sm:max-w-md bg-zinc-950 border-zinc-800 p-6">
+                    <DialogHeader>
+                        <DialogTitle className="text-red-500 flex items-center gap-2">
+                            <Trash2 className="w-5 h-5" />
+                            Toplu Silme Onayı
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <p className="text-zinc-300">
+                            <strong>{selectedIds.length}</strong> adet ürünü kalıcı olarak silmek istediğinize emin misiniz? Bu işlem geri alınamaz.
+                        </p>
+                    </div>
+                    <div className="flex gap-2 justify-end pt-2">
+                        <Button variant="ghost" onClick={() => setIsBulkDeleteOpen(false)}>Vazgeç</Button>
+                        <Button
+                            variant="destructive"
+                            onClick={handleBulkDelete}
+                        >
+                            Evet, Tümünü Sil
                         </Button>
                     </div>
                 </DialogContent>
