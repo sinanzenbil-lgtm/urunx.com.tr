@@ -47,7 +47,7 @@ export default function Navbar() {
     return (
         <nav className="border-b border-white/10 bg-zinc-950 sticky top-0 z-50 backdrop-blur-xl">
             <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-                <Link href="/" className="flex items-center gap-2 font-bold text-xl text-primary tracking-tighter hover:opacity-80 transition-opacity">
+                <Link href="/" className="flex items-center gap-2 font-bold text-xl text-white tracking-tighter hover:opacity-80 transition-opacity">
                     <div className="bg-primary p-1.5 rounded-lg text-white">
                         <Package size={20} />
                     </div>
