@@ -1,65 +1,171 @@
-import Image from "next/image";
+'use client';
+
+import { useStockStore } from '@/lib/store';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Package, TrendingUp, TrendingDown, AlertCircle, Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
 
 export default function Home() {
+  const items = useStockStore((state) => state.items);
+  const [mounted, setMounted] = useState(false);
+
+  // Hydration fix for persistent store
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) return null;
+
+  const totalItems = items.length;
+  const totalQuantity = items.reduce((acc, item) => acc + item.quantity, 0);
+  const totalValue = items.reduce((acc, item) => acc + (item.buyPrice * item.quantity), 0);
+  const potentialValue = items.reduce((acc, item) => acc + (item.sellPrice * item.quantity), 0);
+
+  // Get recent transactions (flattened)
+  const recentTransactions = items
+    .flatMap(item => item.transactions.map(t => ({ ...t, itemName: item.name, itemImage: item.image })))
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 5);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+    <div className="space-y-6 animate-enter">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold tracking-tight">Özet Paneli</h1>
+        <Link href="/giris?mode=new">
+          <Button size="lg" className="gap-2 bg-purple-600 hover:bg-purple-700 text-white border border-purple-500 shadow-[0_0_15px_-3px_rgba(147,51,234,0.5)]">
+            <Plus className="w-5 h-5" />
+            Yeni Ürün Ekle
+          </Button>
+        </Link>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Toplam Ürün Çeşidi</CardTitle>
+            <Package className="h-4 w-4 text-zinc-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalItems}</div>
+            <p className="text-xs text-zinc-500">Stokta kayıtlı barkod sayısı</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Toplam Stok Adedi</CardTitle>
+            <AlertCircle className="h-4 w-4 text-zinc-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalQuantity}</div>
+            <p className="text-xs text-zinc-500">Raflardaki toplam ürün</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Toplam Alış Değeri</CardTitle>
+            <TrendingDown className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-500">
+              {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(totalValue)}
+            </div>
+            <p className="text-xs text-zinc-500">Maliyet bazlı toplam değer</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Potansiyel Ciro</CardTitle>
+            <TrendingUp className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-500">
+              {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(potentialValue)}
+            </div>
+            <p className="text-xs text-zinc-500">Satış fiyatı bazlı değer</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        {/* Recent Transactions - Takes up 1 column on large screens */}
+        <Card className="md:col-span-1">
+          <CardHeader>
+            <CardTitle>Son Hareketler</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {recentTransactions.length === 0 ? (
+                <p className="text-sm text-zinc-500">Henüz bir hareket yok.</p>
+              ) : (
+                recentTransactions.map((t, i) => (
+                  <div key={i} className="flex items-center justify-between border-b border-white/5 last:border-0 pb-2 last:pb-0">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-2 h-2 rounded-full ${t.type === 'IN' ? 'bg-green-500' : 'bg-red-500'}`} />
+                      <div>
+                        <p className="text-sm font-medium leading-none">{t.itemName}</p>
+                        <p className="text-xs text-zinc-500">{new Date(t.date).toLocaleString('tr-TR')}</p>
+                      </div>
+                    </div>
+                    <div className={`font-bold ${t.type === 'IN' ? 'text-green-500' : 'text-red-500'}`}>
+                      {t.type === 'IN' ? '+' : '-'}{t.quantity}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Product List - Takes up 2 columns on large screens */}
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <CardTitle>Mevcut Stok Listesi</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="relative w-full overflow-auto max-h-[400px]">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-zinc-900 sticky top-0 z-10 text-xs uppercase text-zinc-400">
+                  <tr>
+                    <th className="px-4 py-3 rounded-tl-lg">Ürün Adı</th>
+                    <th className="px-4 py-3">Barkod</th>
+                    <th className="px-4 py-3">Marka</th>
+                    <th className="px-4 py-3 text-right">Stok</th>
+                    <th className="px-4 py-3 text-right rounded-tr-lg">Fiyat</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-800">
+                  {items.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-zinc-500">
+                        Stokta ürün bulunmuyor.
+                      </td>
+                    </tr>
+                  ) : (
+                    items.map((item) => (
+                      <tr key={item.id} className="hover:bg-zinc-900/50 transition-colors">
+                        <td className="px-4 py-3 font-medium text-white">{item.name}</td>
+                        <td className="px-4 py-3 font-mono text-zinc-500">{item.barcode}</td>
+                        <td className="px-4 py-3 text-zinc-400">{item.brand || '-'}</td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.quantity > 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                            {item.quantity}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right text-zinc-300">{item.sellPrice} ₺</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
