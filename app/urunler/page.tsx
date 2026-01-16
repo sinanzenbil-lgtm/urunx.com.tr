@@ -21,6 +21,7 @@ export default function ProductsPage() {
 
     const [searchQuery, setSearchQuery] = useState('');
     const [editingItem, setEditingItem] = useState<StockItem | null>(null);
+    const [deletingId, setDeletingId] = useState<string | null>(null);
     const [transactionModal, setTransactionModal] = useState<{ item: StockItem, type: 'IN' | 'OUT' } | null>(null);
 
     const filteredItems = items.filter((item) =>
@@ -162,11 +163,11 @@ export default function ProductsPage() {
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 text-right text-zinc-400">
-                                                {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(item.buyPrice)}
+                                                {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(item.buyPrice) || 0)}
                                             </td>
                                             <td className="px-6 py-4 text-right">
                                                 <div className="font-bold text-white text-lg">
-                                                    {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(item.sellPrice)}
+                                                    {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(item.sellPrice) || 0)}
                                                 </div>
                                             </td>
                                             <td className="px-6 py-4 text-right">
@@ -196,17 +197,7 @@ export default function ProductsPage() {
                                                         variant="ghost"
                                                         size="icon"
                                                         className="text-red-500 hover:text-red-400 hover:bg-red-500/10"
-                                                        onClick={async () => {
-                                                            if (window.confirm('Bu ürünü silmek istediğinize emin misiniz?')) {
-                                                                const result = await dbActions.removeItem(item.id);
-                                                                if (result.success) {
-                                                                    removeItem(item.id);
-                                                                    toast.success('Ürün silindi');
-                                                                } else {
-                                                                    toast.error('Silme işlemi başarısız');
-                                                                }
-                                                            }
-                                                        }}
+                                                        onClick={() => setDeletingId(item.id)}
                                                         title="Sil"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
@@ -341,6 +332,40 @@ export default function ProductsPage() {
                             </form>
                         </div>
                     )}
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={!!deletingId} onOpenChange={(open) => !open && setDeletingId(null)}>
+                <DialogContent className="sm:max-w-md bg-zinc-950 border-zinc-800 p-6">
+                    <DialogHeader>
+                        <DialogTitle className="text-red-500 flex items-center gap-2">
+                            <Trash2 className="w-5 h-5" />
+                            Ürünü Sil?
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <p className="text-zinc-300">Bu ürünü silmek istediğinize emin misiniz? Bu işlem geri alınamaz.</p>
+                    </div>
+                    <div className="flex gap-2 justify-end pt-2">
+                        <Button variant="ghost" onClick={() => setDeletingId(null)}>Vazgeç</Button>
+                        <Button
+                            variant="destructive"
+                            onClick={async () => {
+                                if (!deletingId) return;
+                                const result = await dbActions.removeItem(deletingId);
+                                if (result.success) {
+                                    removeItem(deletingId);
+                                    toast.success('Ürün silindi');
+                                } else {
+                                    toast.error('Silme işlemi başarısız');
+                                }
+                                setDeletingId(null);
+                            }}
+                        >
+                            Evet, Sil
+                        </Button>
+                    </div>
                 </DialogContent>
             </Dialog>
         </div>

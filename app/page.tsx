@@ -19,9 +19,9 @@ export default function Home() {
   if (!mounted) return null;
 
   const totalItems = items.length;
-  const totalQuantity = items.reduce((acc, item) => acc + item.quantity, 0);
-  const totalValue = items.reduce((acc, item) => acc + (item.buyPrice * item.quantity), 0);
-  const potentialValue = items.reduce((acc, item) => acc + (item.sellPrice * item.quantity), 0);
+  const totalQuantity = items.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
+  const totalValue = items.reduce((acc, item) => acc + ((Number(item.buyPrice) || 0) * (Number(item.quantity) || 0)), 0);
+  const potentialValue = items.reduce((acc, item) => acc + ((Number(item.sellPrice) || 0) * (Number(item.quantity) || 0)), 0);
 
   // Get recent transactions (flattened)
   const recentTransactions = items
@@ -150,7 +150,7 @@ export default function Home() {
                             {item.quantity}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right text-zinc-300">{item.sellPrice} ₺</td>
+                        <td className="px-4 py-3 text-right text-zinc-300">{Number(item.sellPrice) || 0} ₺</td>
                       </tr>
                     ))
                   )}
