@@ -69,8 +69,18 @@ export default function EntryPage() {
                 toast.success(`${existing.name}: +1 Adet Eklendi`, { duration: 1000 });
                 setBarcode('');
                 inputRef.current?.focus();
+            } else if (foundItem && foundItem.id === existing.id) {
+                // If same item is already open, increment quantity
+                if (quantityInputRef.current) {
+                    const currentQty = parseInt(quantityInputRef.current.value) || 0;
+                    quantityInputRef.current.value = (currentQty + 1).toString();
+                    toast.success(`${existing.name}: Adet güncellendi (${currentQty + 1})`, { duration: 800 });
+                }
+                setBarcode('');
+                inputRef.current?.focus();
             } else {
                 setFoundItem(existing);
+                setBarcode('');
                 setTimeout(() => quantityInputRef.current?.focus(), 50);
             }
         } else {
@@ -178,6 +188,14 @@ export default function EntryPage() {
             await dbActions.addTransaction(item.id, newTransaction);
             addTransaction(item.id, newTransaction);
             toast.success(`${item.name}: +1 Adet Eklendi`, { duration: 1000 });
+            setSearchQuery('');
+        } else if (foundItem && foundItem.id === item.id) {
+            // If same item is already open, increment quantity
+            if (quantityInputRef.current) {
+                const currentQty = parseInt(quantityInputRef.current.value) || 0;
+                quantityInputRef.current.value = (currentQty + 1).toString();
+                toast.success(`${item.name}: Adet güncellendi (${currentQty + 1})`, { duration: 800 });
+            }
             setSearchQuery('');
         } else {
             setFoundItem(item);
