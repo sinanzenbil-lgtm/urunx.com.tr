@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { Search, Scan, Plus, Save, X } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { useForm } from 'react-hook-form';
+import * as dbActions from '@/lib/actions';
 
 export default function EntryPage() {
     const [barcode, setBarcode] = useState('');
@@ -57,20 +58,19 @@ export default function EntryPage() {
 
         if (existing) {
             if (rapidMode) {
-                // Rapid Mode: Add +1 immediately
-                addTransaction(existing.id, {
+                const newTransaction = {
                     id: uuidv4(),
                     date: new Date().toISOString(),
-                    type: 'IN',
+                    type: 'IN' as const,
                     quantity: 1
-                });
+                };
+                dbActions.addTransaction(existing.id, newTransaction); // Sync to DB
+                addTransaction(existing.id, newTransaction); // Sync to Local Store
                 toast.success(`${existing.name}: +1 Adet Eklendi`, { duration: 1000 });
                 setBarcode('');
                 inputRef.current?.focus();
             } else {
-                // Manual Mode: Show item and ask quantity
                 setFoundItem(existing);
-                // Timeout to let UI render then focus quantity
                 setTimeout(() => quantityInputRef.current?.focus(), 50);
             }
         } else {
@@ -82,19 +82,25 @@ export default function EntryPage() {
         }
     };
 
-    const handleManualAdd = (e: React.FormEvent) => {
+    const handleManualAdd = async (e: React.FormEvent) => {
         e.preventDefault();
         const form = e.target as HTMLFormElement;
         const qty = parseInt((form.elements.namedItem('quantity') as HTMLInputElement).value);
 
         if (qty > 0 && foundItem) {
-            addTransaction(foundItem.id, {
+            const newTransaction = {
                 id: uuidv4(),
                 date: new Date().toISOString(),
-                type: 'IN',
+                type: 'IN' as const,
                 quantity: qty
-            });
-            toast.success(`${foundItem.name}: +${qty} Adet Eklendi`);
+            };
+            const result = await dbActions.addTransaction(foundItem.id, newTransaction);
+            if (result.success) {
+                addTransaction(foundItem.id, newTransaction);
+                toast.success(`${foundItem.name}: +${qty} Adet Eklendi`);
+            } else {
+                toast.error('Kayıt yapılırken bir hata oluştu');
+            }
             setFoundItem(null);
             setBarcode('');
             inputRef.current?.focus();
@@ -113,13 +119,13 @@ export default function EntryPage() {
         }
     };
 
-    const onNewItemSubmit = (data: any) => {
+    const onNewItemSubmit = async (data: any) => {
         const newItem = {
             id: uuidv4(),
-            barcode: data.barcode,
-            stockCode: data.stockCode || '', // Add stock code
+            barcode: data.barcode || uuidv4().slice(0, 8).toUpperCase(),
+            stockCode: data.stockCode || '',
             name: data.name,
-            image: data.image || '', // Optional
+            image: data.image || '',
             description: data.description || '',
             brand: data.brand || '',
             vatRate: parseFloat(data.vatRate) || 18,
@@ -138,8 +144,13 @@ export default function EntryPage() {
             updatedAt: new Date().toISOString(),
         };
 
-        addItem(newItem);
-        toast.success('Yeni ürün kaydedildi');
+        const result = await dbActions.addItem(newItem);
+        if (result.success) {
+            addItem(newItem);
+            toast.success('Yeni ürün kaydedildi');
+        } else {
+            toast.error('Ürün kaydedilirken hata oluştu');
+        }
         setIsNewItem(false);
         reset();
         setBarcode('');
@@ -156,14 +167,16 @@ export default function EntryPage() {
         }
     }, [searchQuery, searchItems]);
 
-    const handleSearchResultClick = (item: any) => {
+    const handleSearchResultClick = async (item: any) => {
         if (rapidMode) {
-            addTransaction(item.id, {
+            const newTransaction = {
                 id: uuidv4(),
                 date: new Date().toISOString(),
-                type: 'IN',
+                type: 'IN' as const,
                 quantity: 1
-            });
+            };
+            await dbActions.addTransaction(item.id, newTransaction);
+            addTransaction(item.id, newTransaction);
             toast.success(`${item.name}: +1 Adet Eklendi`, { duration: 1000 });
             setSearchQuery('');
         } else {

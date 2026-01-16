@@ -3,12 +3,13 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import Navbar from '@/components/ui/navbar';
 import AuthProvider from '@/components/auth-provider';
+import DbSyncProvider from '@/components/db-sync-provider';
 import { Toaster } from 'sonner';
 
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Stokx',
+  title: 'URUNX',
   description: 'Hızlı Stok Takip Sistemi',
 };
 
@@ -21,11 +22,13 @@ export default function RootLayout({
     <html lang="tr" className="dark">
       <body className={inter.className}>
         <AuthProvider>
-          <Navbar />
-          <main className="container mx-auto p-4 md:p-8">
-            {children}
-          </main>
-          <Toaster position="bottom-right" theme="dark" />
+          <DbSyncProvider>
+            <Navbar />
+            <main className="container mx-auto p-4 md:p-8">
+              {children}
+            </main>
+            <Toaster position="bottom-right" theme="dark" />
+          </DbSyncProvider>
         </AuthProvider>
       </body>
     </html>

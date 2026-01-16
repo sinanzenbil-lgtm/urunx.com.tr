@@ -51,6 +51,7 @@ export const useStockStore = create<StockStore>()(
             },
             login: (user) => set({ user, isAuthenticated: true }),
             logout: () => set({ user: null, isAuthenticated: false }),
+            setItems: (items) => set({ items }),
         }),
         {
             name: 'urunx-storage', // Rebranding storage name

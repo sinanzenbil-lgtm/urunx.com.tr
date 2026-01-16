@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { toast } from 'sonner';
 import { StockItem } from '@/types';
 import { Package, Scan, Search, Edit, X, PlusCircle, MinusCircle, Trash2 } from 'lucide-react';
+import * as dbActions from '@/lib/actions';
 
 export default function ProductsPage() {
     const items = useStockStore((state) => state.items);
@@ -29,15 +30,21 @@ export default function ProductsPage() {
         item.brand?.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const handleUpdate = (e: React.FormEvent) => {
+    const handleUpdate = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!editingItem) return;
-        updateItem(editingItem.id, editingItem);
-        toast.success('Ürün güncellendi');
+
+        const result = await dbActions.updateItem(editingItem.id, editingItem);
+        if (result.success) {
+            updateItem(editingItem.id, editingItem);
+            toast.success('Ürün güncellendi');
+        } else {
+            toast.error('Giriş yapılamadı / Kayıt hatası');
+        }
         setEditingItem(null);
     };
 
-    const handleTransaction = (e: React.FormEvent) => {
+    const handleTransaction = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!transactionModal) return;
 
@@ -54,14 +61,21 @@ export default function ProductsPage() {
             return;
         }
 
-        addTransaction(transactionModal.item.id, {
-            id: crypto.randomUUID(), // using native randomUUID since we might need uuid import otherwise
+        const newTransaction = {
+            id: crypto.randomUUID(),
             date: new Date().toISOString(),
             type: transactionModal.type,
             quantity: quantity
-        });
+        };
 
-        toast.success(transactionModal.type === 'IN' ? 'Stok Eklendi' : 'Satış Yapıldı / Stoktan Düştü');
+        const result = await dbActions.addTransaction(transactionModal.item.id, newTransaction);
+        if (result.success) {
+            addTransaction(transactionModal.item.id, newTransaction);
+            toast.success(transactionModal.type === 'IN' ? 'Stok Eklendi' : 'Satış Yapıldı / Stoktan Düştü');
+        } else {
+            toast.error('Kayıt yapılırken bir hata oluştu');
+        }
+
         setTransactionModal(null);
     };
 
@@ -182,10 +196,15 @@ export default function ProductsPage() {
                                                         variant="ghost"
                                                         size="icon"
                                                         className="text-red-500 hover:text-red-400 hover:bg-red-500/10"
-                                                        onClick={() => {
+                                                        onClick={async () => {
                                                             if (window.confirm('Bu ürünü silmek istediğinize emin misiniz?')) {
-                                                                removeItem(item.id);
-                                                                toast.success('Ürün silindi');
+                                                                const result = await dbActions.removeItem(item.id);
+                                                                if (result.success) {
+                                                                    removeItem(item.id);
+                                                                    toast.success('Ürün silindi');
+                                                                } else {
+                                                                    toast.error('Silme işlemi başarısız');
+                                                                }
                                                             }
                                                         }}
                                                         title="Sil"

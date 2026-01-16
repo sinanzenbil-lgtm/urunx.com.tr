@@ -42,4 +42,5 @@ export interface StockStore {
     searchItems: (query: string) => StockItem[];
     login: (user: User) => void;
     logout: () => void;
+    setItems: (items: StockItem[]) => void;
 }

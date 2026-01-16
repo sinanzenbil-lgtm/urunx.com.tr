@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { Scan, Trash2, Save, ShoppingCart, Store, User, Building2, Search, X, Package } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { StockItem } from '@/types';
+import * as dbActions from '@/lib/actions';
 
 type SalesChannel = 'Pazaryeri' | 'Perakende' | 'Toptan';
 
@@ -77,16 +78,12 @@ export default function ExitPage() {
         setCart(prev => prev.filter(item => item.id !== id));
     };
 
-    const completeSale = () => {
+    const completeSale = async () => {
         if (cart.length === 0) return;
 
         let hasError = false;
 
-        // Check stocks first
         cart.forEach(cartItem => {
-            // We need to account for multiple entries of the same item in the cart
-            // But for simplicity, let's just check individual lines first.
-            // A more robust check would sum up quantities per StockItemID.
             if (cartItem.stockItem.quantity < cartItem.quantity) {
                 toast.error(`${cartItem.stockItem.name} için yetersiz stok!`);
                 hasError = true;
@@ -95,19 +92,30 @@ export default function ExitPage() {
 
         if (hasError) return;
 
-        cart.forEach(cartItem => {
-            addTransaction(cartItem.stockItem.id, {
+        const promises = cart.map(cartItem => {
+            const newTransaction = {
                 id: uuidv4(),
                 date: new Date().toISOString(),
-                type: 'OUT',
+                type: 'OUT' as const,
                 quantity: cartItem.quantity,
                 channel: cartItem.channel
-            });
+            };
+
+            // Sync to Local Store
+            addTransaction(cartItem.stockItem.id, newTransaction);
+            // Return promise for DB sync
+            return dbActions.addTransaction(cartItem.stockItem.id, newTransaction);
         });
 
-        toast.success(`${cart.length} kalem ürünün satışı tamamlandı.`);
-        setCart([]);
-        inputRef.current?.focus();
+        try {
+            await Promise.all(promises);
+            toast.success(`${cart.length} kalem ürünün satışı tamamlandı.`);
+            setCart([]);
+            inputRef.current?.focus();
+        } catch (error) {
+            toast.error('Satış kaydedilirken bir hata oluştu');
+            console.error(error);
+        }
     };
 
     return (

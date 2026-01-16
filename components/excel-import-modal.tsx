@@ -10,6 +10,8 @@ import { Upload, FileSpreadsheet, Download, AlertCircle, CheckCircle } from 'luc
 import { useStockStore } from '@/lib/store';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
+import { bulkAddItems } from '@/lib/actions';
+import { StockItem } from '@/types';
 
 export default function ExcelImportModal() {
     const [isOpen, setIsOpen] = useState(false);
@@ -39,23 +41,21 @@ export default function ExcelImportModal() {
         if (file) processFile(file);
     };
 
-    const handleImport = () => {
+    const handleImport = async () => {
         if (previewData.length === 0) return;
 
+        const itemsToImport: any[] = [];
         let successCount = 0;
         let failCount = 0;
 
         previewData.forEach((row: any) => {
             try {
-                // Map Excel columns to StockItem
-                // Expected columns: UrunAdi, Barkod, StokKodu, Marka, AlisFiyati, SatisFiyati, StokAdedi, ResimURL
-
                 if (!row['UrunAdi'] && !row['Barkod']) {
                     failCount++;
                     return;
                 }
 
-                addItem({
+                const newItem: StockItem = {
                     id: uuidv4(),
                     barcode: String(row['Barkod'] || ''),
                     stockCode: String(row['StokKodu'] || ''),
@@ -64,28 +64,36 @@ export default function ExcelImportModal() {
                     buyPrice: parseFloat(row['AlisFiyati']) || 0,
                     sellPrice: parseFloat(row['SatisFiyati']) || 0,
                     quantity: parseInt(row['StokAdedi']) || 0,
-                    vatRate: 20, // Default
+                    vatRate: 20,
                     image: String(row['ResimURL'] || ''),
                     description: '',
                     transactions: [
                         {
                             id: uuidv4(),
                             date: new Date().toISOString(),
-                            type: 'IN',
-                            quantity: parseInt(row['StokAdedi']) || 0,
-                            channel: 'Pazaryeri' // Default
+                            type: (row['Adet'] > 0 ? 'IN' : 'IN') as any, // Cast to any to bypass string check
+                            quantity: Math.abs(parseInt(row['StokAdedi'])) || 0,
+                            channel: 'Pazaryeri'
                         }
                     ],
                     createdAt: new Date().toISOString(),
                     updatedAt: new Date().toISOString()
-                });
-                successCount++;
+                };
+
+                itemsToImport.push(newItem);
+                addItem(newItem); // Keep local store in sync
             } catch (e) {
                 failCount++;
             }
         });
 
-        toast.success(`İçe aktarım tamamlandı: ${successCount} başarılı, ${failCount} hatalı`);
+        const result = await bulkAddItems(itemsToImport);
+        if (result.success) {
+            toast.success(`İçe aktarım tamamlandı: ${itemsToImport.length} ürün başarıyla yüklendi.`);
+        } else {
+            toast.error('Veritabanına yükleme yapılırken hata oluştu.');
+        }
+
         setIsOpen(false);
         setPreviewData([]);
     };
