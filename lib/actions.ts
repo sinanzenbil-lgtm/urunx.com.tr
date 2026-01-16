@@ -7,18 +7,46 @@ import { revalidatePath } from 'next/cache';
 export async function getItems() {
     try {
         const items = await sql`
-      SELECT i.*, 
-             COALESCE(
-               (SELECT json_agg(t ORDER BY t.date DESC)
-                FROM transactions t
-                WHERE t.item_id = i.id),
-               '[]'
-             ) as transactions
-      FROM items i
-      ORDER BY i.updated_at DESC
-    `;
+            SELECT 
+                id, 
+                barcode, 
+                stock_code as "stockCode", 
+                name, 
+                image, 
+                description, 
+                brand, 
+                vat_rate as "vatRate", 
+                buy_price as "buyPrice", 
+                sell_price as "sellPrice", 
+                quantity, 
+                created_at as "createdAt", 
+                updated_at as "updatedAt",
+                COALESCE(
+                    (SELECT json_agg(json_build_object(
+                        'id', t.id,
+                        'date', t.date,
+                        'type', t.type,
+                        'quantity', t.quantity,
+                        'channel', t.channel
+                    ) ORDER BY t.date DESC)
+                    FROM transactions t
+                    WHERE t.item_id = i.id),
+                    '[]'
+                ) as transactions
+            FROM items i
+            ORDER BY i.updated_at DESC
+        `;
 
-        return items as unknown as StockItem[];
+        // Ensure numeric fields are numbers (sometimes DECIMAL comes as string)
+        const formattedItems = items.map(item => ({
+            ...item,
+            buyPrice: Number(item.buyPrice) || 0,
+            sellPrice: Number(item.sellPrice) || 0,
+            vatRate: Number(item.vatRate) || 0,
+            quantity: Number(item.quantity) || 0
+        }));
+
+        return formattedItems as unknown as StockItem[];
     } catch (error) {
         console.error('Error fetching items:', error);
         return [];
