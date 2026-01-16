@@ -150,7 +150,7 @@ export default function Home() {
                     <th className="px-4 py-3 text-center">Çeşit</th>
                     <th className="px-4 py-3 text-center">Adet</th>
                     <th className="px-4 py-3 text-right">Maliyet (TL)</th>
-                    <th className="px-4 py-3 text-right rounded-tr-lg">Satış (TL)</th>
+                    <th className="px-4 py-3 text-right rounded-tr-lg">Potansiyel Satış (TL)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800">
