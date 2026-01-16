@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import ExcelImportModal from '@/components/excel-import-modal';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { StockItem } from '@/types';
 import { Package, Scan, Search, Edit, X, PlusCircle, MinusCircle, Trash2 } from 'lucide-react';
@@ -202,16 +203,16 @@ export default function ProductsPage() {
                 </CardContent>
             </Card>
 
-            {transactionModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-enter">
-                    <Card className="w-full max-w-sm bg-zinc-950 border-zinc-800 shadow-2xl">
-                        <CardHeader>
-                            <CardTitle className={transactionModal.type === 'IN' ? 'text-green-500' : 'text-red-500'}>
-                                {transactionModal.type === 'IN' ? 'Stok Giriş / Alış' : 'Stok Çıkış / Satış'}
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="mb-4">
+            <Dialog open={!!transactionModal} onOpenChange={(open) => !open && setTransactionModal(null)}>
+                <DialogContent className="sm:max-w-sm bg-zinc-950 border-zinc-800 p-6">
+                    {transactionModal && (
+                        <>
+                            <DialogHeader>
+                                <DialogTitle className={transactionModal.type === 'IN' ? 'text-green-500' : 'text-red-500'}>
+                                    {transactionModal.type === 'IN' ? 'Stok Giriş / Alış' : 'Stok Çıkış / Satış'}
+                                </DialogTitle>
+                            </DialogHeader>
+                            <div className="py-4">
                                 <p className="font-medium text-white">{transactionModal.item.name}</p>
                                 <p className="text-sm text-zinc-500">Mevcut Stok: {transactionModal.item.quantity}</p>
                             </div>
@@ -227,7 +228,7 @@ export default function ProductsPage() {
                                         className="text-center text-2xl font-bold h-14"
                                     />
                                 </div>
-                                <div className="flex gap-2 justify-end">
+                                <div className="flex gap-2 justify-end pt-2">
                                     <Button type="button" variant="ghost" onClick={() => setTransactionModal(null)}>İptal</Button>
                                     <Button
                                         type="submit"
@@ -238,20 +239,19 @@ export default function ProductsPage() {
                                     </Button>
                                 </div>
                             </form>
-                        </CardContent>
-                    </Card>
-                </div>
-            )}
+                        </>
+                    )}
+                </DialogContent>
+            </Dialog>
 
-            {editingItem && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-enter">
-                    <Card className="w-full max-w-lg bg-zinc-950 border-zinc-800 shadow-2xl">
-                        <CardHeader className="flex flex-row items-center justify-between border-b border-zinc-900 pb-4">
-                            <CardTitle>Ürün Düzenle</CardTitle>
-                            <Button variant="ghost" size="icon" onClick={() => setEditingItem(null)}><X className="w-4 h-4" /></Button>
-                        </CardHeader>
-                        <CardContent className="pt-6">
-                            <form onSubmit={handleUpdate} className="space-y-4">
+            <Dialog open={!!editingItem} onOpenChange={(open) => !open && setEditingItem(null)}>
+                <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 p-6">
+                    {editingItem && (
+                        <>
+                            <DialogHeader>
+                                <DialogTitle>Ürün Düzenle</DialogTitle>
+                            </DialogHeader>
+                            <form onSubmit={handleUpdate} className="space-y-4 pt-4">
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">Ürün Adı</label>
                                     <Input
@@ -320,10 +320,10 @@ export default function ProductsPage() {
                                     <Button type="submit" className="bg-primary text-primary-foreground hover:bg-primary/90">Kaydet</Button>
                                 </div>
                             </form>
-                        </CardContent>
-                    </Card>
-                </div>
-            )}
+                        </>
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
