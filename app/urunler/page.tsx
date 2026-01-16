@@ -245,11 +245,11 @@ export default function ProductsPage() {
             </Dialog>
 
             <Dialog open={!!editingItem} onOpenChange={(open) => !open && setEditingItem(null)}>
-                <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 p-6">
+                <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 p-0 overflow-hidden">
                     {editingItem && (
-                        <>
-                            <DialogHeader>
-                                <DialogTitle>Ürün Düzenle</DialogTitle>
+                        <div className="p-6">
+                            <DialogHeader className="mb-4">
+                                <DialogTitle className="text-xl font-bold">Ürün Düzenle</DialogTitle>
                             </DialogHeader>
                             <form onSubmit={handleUpdate} className="space-y-4 pt-4">
                                 <div className="space-y-2">
@@ -320,7 +320,7 @@ export default function ProductsPage() {
                                     <Button type="submit" className="bg-primary text-primary-foreground hover:bg-primary/90">Kaydet</Button>
                                 </div>
                             </form>
-                        </>
+                        </div>
                     )}
                 </DialogContent>
             </Dialog>
