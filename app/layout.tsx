@@ -9,8 +9,19 @@ import { Toaster } from 'sonner';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'URUNX',
-  description: 'Hızlı Stok Takip Sistemi',
+  title: 'URUNX | SPEEDSPOR',
+  description: 'Hızlı ve Profesyonel Stok Takip Sistemi',
+  icons: {
+    icon: '/favicon.ico',
+    shortcut: '/favicon.ico',
+    apple: '/icon.png',
+  },
+  openGraph: {
+    title: 'URUNX | Stok Takip',
+    description: 'SPEEDSPOR Hızlı Stok Takip Sistemi',
+    images: [{ url: '/og-image.png' }],
+    type: 'website',
+  },
 };
 
 export default function RootLayout({
