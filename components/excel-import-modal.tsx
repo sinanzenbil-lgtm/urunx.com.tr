@@ -45,7 +45,6 @@ export default function ExcelImportModal() {
         if (previewData.length === 0) return;
 
         const itemsToImport: any[] = [];
-        let successCount = 0;
         let failCount = 0;
 
         previewData.forEach((row: any) => {
@@ -71,7 +70,7 @@ export default function ExcelImportModal() {
                         {
                             id: uuidv4(),
                             date: new Date().toISOString(),
-                            type: (row['Adet'] > 0 ? 'IN' : 'IN') as any, // Cast to any to bypass string check
+                            type: (row['Adet'] > 0 ? 'IN' : 'IN') as any,
                             quantity: Math.abs(parseInt(row['StokAdedi'])) || 0,
                             channel: 'Pazaryeri'
                         }
@@ -81,15 +80,35 @@ export default function ExcelImportModal() {
                 };
 
                 itemsToImport.push(newItem);
-                addItem(newItem); // Keep local store in sync
             } catch (e) {
                 failCount++;
             }
         });
 
-        const result = await bulkAddItems(itemsToImport);
-        if (result.success) {
-            toast.success(`İçe aktarım tamamlandı: ${itemsToImport.length} ürün başarıyla yüklendi.`);
+        // Upload in chunks of 50 to avoid timeout
+        const CHUNK_SIZE = 50;
+        let successCount = 0;
+
+        for (let i = 0; i < itemsToImport.length; i += CHUNK_SIZE) {
+            const chunk = itemsToImport.slice(i, i + CHUNK_SIZE);
+            const progress = Math.min(i + CHUNK_SIZE, itemsToImport.length);
+
+            toast.loading(`Yükleniyor: ${progress}/${itemsToImport.length}`, { id: 'upload-progress' });
+
+            const result = await bulkAddItems(chunk);
+            if (result.success) {
+                chunk.forEach(item => addItem(item)); // Keep local store in sync
+                successCount += chunk.length;
+            } else {
+                toast.error(`Hata: ${i}-${progress} arası yüklenemedi`);
+                break;
+            }
+        }
+
+        toast.dismiss('upload-progress');
+
+        if (successCount > 0) {
+            toast.success(`İçe aktarım tamamlandı: ${successCount} ürün başarıyla yüklendi.`);
         } else {
             toast.error('Veritabanına yükleme yapılırken hata oluştu.');
         }

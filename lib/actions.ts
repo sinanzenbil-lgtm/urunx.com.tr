@@ -145,35 +145,49 @@ export async function addTransaction(itemId: string, transaction: Transaction) {
 
 export async function bulkAddItems(items: StockItem[]) {
     try {
-        for (const item of items) {
-            await sql`
-                INSERT INTO items (
-                    id, barcode, stock_code, name, image, description, brand, 
-                    vat_rate, buy_price, sell_price, quantity, created_at, updated_at
-                ) VALUES (
-                    ${item.id}, ${item.barcode}, ${item.stockCode}, ${item.name}, ${item.image}, 
-                    ${item.description}, ${item.brand}, ${item.vatRate}, ${item.buyPrice}, 
-                    ${item.sellPrice}, ${item.quantity}, ${item.createdAt}, ${item.updatedAt}
-                ) ON CONFLICT (barcode) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    brand = EXCLUDED.brand,
-                    stock_code = EXCLUDED.stock_code,
-                    buy_price = EXCLUDED.buy_price,
-                    sell_price = EXCLUDED.sell_price,
-                    quantity = EXCLUDED.quantity,
-                    updated_at = EXCLUDED.updated_at
-            `;
+        // Process in batches of 50 to avoid timeout
+        const BATCH_SIZE = 50;
 
-            // Insert transactions if they exist
-            if (item.transactions && item.transactions.length > 0) {
-                for (const t of item.transactions) {
-                    await sql`
-                        INSERT INTO transactions (id, item_id, date, type, quantity, channel)
-                        VALUES (${t.id ?? crypto.randomUUID()}, ${item.id}, ${t.date}, ${t.type}, ${t.quantity}, ${t.channel})
-                    `;
+        for (let i = 0; i < items.length; i += BATCH_SIZE) {
+            const batch = items.slice(i, i + BATCH_SIZE);
+
+            // Batch insert items using individual queries (Neon limitation)
+            for (const item of batch) {
+                await sql`
+                    INSERT INTO items (
+                        id, barcode, stock_code, name, image, description, brand, 
+                        vat_rate, buy_price, sell_price, quantity, created_at, updated_at
+                    ) VALUES (
+                        ${item.id}, ${item.barcode}, ${item.stockCode}, ${item.name}, ${item.image}, 
+                        ${item.description}, ${item.brand}, ${item.vatRate}, ${item.buyPrice}, 
+                        ${item.sellPrice}, ${item.quantity}, ${item.createdAt}, ${item.updatedAt}
+                    )
+                    ON CONFLICT (barcode) DO UPDATE SET
+                        name = EXCLUDED.name,
+                        brand = EXCLUDED.brand,
+                        stock_code = EXCLUDED.stock_code,
+                        buy_price = EXCLUDED.buy_price,
+                        sell_price = EXCLUDED.sell_price,
+                        quantity = EXCLUDED.quantity,
+                        vat_rate = EXCLUDED.vat_rate,
+                        updated_at = EXCLUDED.updated_at
+                `;
+            }
+
+            // Batch insert transactions
+            for (const item of batch) {
+                if (item.transactions && item.transactions.length > 0) {
+                    for (const t of item.transactions) {
+                        await sql`
+                            INSERT INTO transactions (id, item_id, date, type, quantity, channel)
+                            VALUES (${t.id ?? crypto.randomUUID()}, ${item.id}, ${t.date}, ${t.type}, ${t.quantity}, ${t.channel})
+                            ON CONFLICT (id) DO NOTHING
+                        `;
+                    }
                 }
             }
         }
+
         revalidatePath('/urunler');
         return { success: true };
     } catch (error) {
