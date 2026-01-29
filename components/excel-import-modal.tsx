@@ -64,7 +64,7 @@ export default function ExcelImportModal() {
                     buyPrice: parseFloat(row['AlisFiyati']) || 0,
                     sellPrice: parseFloat(row['SatisFiyati']) || 0,
                     quantity: parseInt(row['StokAdedi']) || 0,
-                    vatRate: 20,
+                    vatRate: parseFloat(row['KDV']) || 20,
                     image: String(row['ResimURL'] || ''),
                     description: '',
                     transactions: [
@@ -99,7 +99,7 @@ export default function ExcelImportModal() {
     };
 
     const downloadTemplate = () => {
-        const headers = ['UrunAdi', 'Barkod', 'StokKodu', 'Marka', 'AlisFiyati', 'SatisFiyati', 'StokAdedi', 'ResimURL'];
+        const headers = ['UrunAdi', 'Barkod', 'StokKodu', 'Marka', 'AlisFiyati', 'SatisFiyati', 'StokAdedi', 'KDV', 'ResimURL'];
         const ws = XLSX.utils.aoa_to_sheet([headers]);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Sablon");
