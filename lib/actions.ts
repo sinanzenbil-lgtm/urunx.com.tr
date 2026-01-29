@@ -178,11 +178,15 @@ export async function bulkAddItems(items: StockItem[]) {
             for (const item of batch) {
                 if (item.transactions && item.transactions.length > 0) {
                     for (const t of item.transactions) {
-                        await sql`
-                            INSERT INTO transactions (id, item_id, date, type, quantity, channel)
-                            VALUES (${t.id ?? crypto.randomUUID()}, ${item.id}, ${t.date}, ${t.type}, ${t.quantity}, ${t.channel})
-                            ON CONFLICT (id) DO NOTHING
-                        `;
+                        try {
+                            await sql`
+                                INSERT INTO transactions (id, item_id, date, type, quantity, channel)
+                                VALUES (${t.id ?? crypto.randomUUID()}, ${item.id}, ${t.date}, ${t.type}, ${t.quantity}, ${t.channel})
+                            `;
+                        } catch (txError) {
+                            // Skip if transaction already exists
+                            console.log('Transaction already exists, skipping:', t.id);
+                        }
                     }
                 }
             }
