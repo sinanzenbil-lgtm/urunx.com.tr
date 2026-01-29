@@ -54,9 +54,12 @@ export default function ExcelImportModal() {
                     return;
                 }
 
+                const rawBarcode = String(row['Barkod'] || '').trim();
+                const barcode = rawBarcode.length > 0 ? rawBarcode : uuidv4().slice(0, 8).toUpperCase();
+
                 const newItem: StockItem = {
                     id: uuidv4(),
-                    barcode: String(row['Barkod'] || ''),
+                    barcode,
                     stockCode: String(row['StokKodu'] || ''),
                     name: String(row['UrunAdi'] || 'İsimsiz Ürün'),
                     brand: String(row['Marka'] || ''),
@@ -159,7 +162,7 @@ export default function ExcelImportModal() {
                         </div>
                         <ul className="list-disc list-inside space-y-1 opacity-80">
                             <li>Sütun başlıkları tam olarak şablondaki gibi olmalıdır.</li>
-                            <li>Barkod alanı zorunludur ve benzersiz olmalıdır.</li>
+                            <li>Barkod alanı boş bırakılabilir; boşsa sistem otomatik üretir.</li>
                             <li>Excel formatı .xlsx veya .xls olmalıdır.</li>
                         </ul>
                         <Button
