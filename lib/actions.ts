@@ -40,6 +40,8 @@ export async function getItems() {
         // Ensure numeric fields are numbers (sometimes DECIMAL comes as string)
         const formattedItems = (items as any[]).map((item) => ({
             ...item,
+            barcode: item.barcode ?? '',
+            stockCode: item.stockCode ?? '',
             buyPrice: Number(item.buyPrice) || 0,
             sellPrice: Number(item.sellPrice) || 0,
             vatRate: Number(item.vatRate) || 0,
@@ -53,14 +55,26 @@ export async function getItems() {
     }
 }
 
+async function ensureItemsSchema() {
+    await sql`ALTER TABLE items DROP CONSTRAINT IF EXISTS items_barcode_key;`;
+    await sql`DROP INDEX IF EXISTS items_barcode_key;`;
+    await sql`ALTER TABLE items ALTER COLUMN barcode DROP NOT NULL;`;
+}
+
 export async function addItem(item: StockItem) {
     try {
+        await ensureItemsSchema();
+        const barcodeValue = (item.barcode ?? '').trim();
+        const stockCodeValue = (item.stockCode ?? '').trim();
+        const dbBarcode = barcodeValue.length > 0 ? barcodeValue : null;
+        const dbStockCode = stockCodeValue.length > 0 ? stockCodeValue : null;
+
         await sql`
       INSERT INTO items (
         id, barcode, stock_code, name, image, description, brand, 
         vat_rate, buy_price, sell_price, quantity, created_at, updated_at
       ) VALUES (
-        ${item.id}, ${item.barcode}, ${item.stockCode}, ${item.name}, ${item.image}, 
+        ${item.id}, ${dbBarcode}, ${dbStockCode}, ${item.name}, ${item.image}, 
         ${item.description}, ${item.brand}, ${item.vatRate}, ${item.buyPrice}, 
         ${item.sellPrice}, ${item.quantity}, ${item.createdAt}, ${item.updatedAt}
       )
@@ -145,6 +159,7 @@ export async function addTransaction(itemId: string, transaction: Transaction) {
 
 export async function bulkAddItems(items: StockItem[]) {
     try {
+        await ensureItemsSchema();
         // Process in batches of 50 to avoid timeout
         const BATCH_SIZE = 50;
 
@@ -153,12 +168,17 @@ export async function bulkAddItems(items: StockItem[]) {
 
             // Batch insert items using individual queries (Neon limitation)
             for (const item of batch) {
+                const barcodeValue = (item.barcode ?? '').trim();
+                const stockCodeValue = (item.stockCode ?? '').trim();
+                const dbBarcode = barcodeValue.length > 0 ? barcodeValue : null;
+                const dbStockCode = stockCodeValue.length > 0 ? stockCodeValue : null;
+
                 await sql`
                     INSERT INTO items (
                         id, barcode, stock_code, name, image, description, brand, 
                         vat_rate, buy_price, sell_price, quantity, created_at, updated_at
                     ) VALUES (
-                        ${item.id}, ${item.barcode}, ${item.stockCode}, ${item.name}, ${item.image}, 
+                        ${item.id}, ${dbBarcode}, ${dbStockCode}, ${item.name}, ${item.image}, 
                         ${item.description}, ${item.brand}, ${item.vatRate}, ${item.buyPrice}, 
                         ${item.sellPrice}, ${item.quantity}, ${item.createdAt}, ${item.updatedAt}
                     )
