@@ -4,7 +4,6 @@ import { useStockStore } from '@/lib/store';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Package, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 export default function Home() {
