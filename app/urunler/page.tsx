@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import ExcelImportModal from '@/components/excel-import-modal';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { StockItem } from '@/types';
 import { Package, Scan, Search, Edit, X, PlusCircle, MinusCircle, Trash2 } from 'lucide-react';
@@ -209,7 +209,7 @@ export default function ProductsPage() {
                     <Search className="absolute left-3 top-3 w-5 h-5 text-zinc-500" />
                     <Input
                         placeholder="Ürün adı, barkod veya stok kodu ara..."
-                        className="pl-10 h-12 text-lg bg-zinc-900/50 border-zinc-800 focus:border-primary/50"
+                        className="pl-10 h-11 text-base bg-zinc-900/50 border-zinc-800 focus:border-primary/50"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
@@ -247,10 +247,10 @@ export default function ProductsPage() {
             <Card>
                 <CardContent className="p-0">
                     <div className="relative w-full overflow-auto">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-zinc-900 border-b border-zinc-800 text-xs uppercase text-zinc-400">
+                        <table className="w-full text-xs text-left">
+                            <thead className="bg-zinc-900 border-b border-zinc-800 text-[11px] uppercase tracking-wide text-zinc-400">
                                 <tr>
-                                    <th className="px-4 py-4 w-10">
+                                    <th className="px-3 py-3 w-8">
                                         <input
                                             type="checkbox"
                                             checked={selectedIds.length > 0 && selectedIds.length === filteredItems.length}
@@ -258,22 +258,22 @@ export default function ProductsPage() {
                                             className="w-4 h-4 accent-primary rounded"
                                         />
                                     </th>
-                                    <th className="px-6 py-4 w-[120px]">Görsel</th>
-                                    <th className="px-6 py-4">Marka</th>
-                                    <th className="px-6 py-4">Ürün Bilgisi</th>
-                                    <th className="px-6 py-4">Stok Kodu</th>
-                                    <th className="px-6 py-4">Barkod</th>
-                                    <th className="px-6 py-4 text-center">Stok</th>
-                                    <th className="px-6 py-4 text-right">KDV</th>
-                                    <th className="px-6 py-4 text-right">Alış Fiyatı</th>
-                                    <th className="px-6 py-4 text-right">Satış Fiyatı</th>
-                                    <th className="px-6 py-4 text-right">İşlemler</th>
+                                    <th className="px-4 py-3 w-[96px]">Görsel</th>
+                                    <th className="px-4 py-3">Marka</th>
+                                    <th className="px-4 py-3">Ürün Bilgisi</th>
+                                    <th className="px-4 py-3">Stok Kodu</th>
+                                    <th className="px-4 py-3">Barkod</th>
+                                    <th className="px-4 py-3 text-center">Stok</th>
+                                    <th className="px-4 py-3 text-right">KDV</th>
+                                    <th className="px-4 py-3 text-right">Alış Fiyatı</th>
+                                    <th className="px-4 py-3 text-right">Satış Fiyatı</th>
+                                    <th className="px-4 py-3 text-right">İşlemler</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-800">
                                 {filteredItems.length === 0 ? (
                                     <tr>
-                                        <td colSpan={10} className="px-6 py-12 text-center text-zinc-500">
+                                        <td colSpan={10} className="px-6 py-10 text-center text-zinc-500">
                                             {items.length === 0 ? "Henüz ürün eklenmemiş." : "Aranan kriterlere uygun ürün bulunamadı."}
                                         </td>
                                     </tr>
@@ -283,7 +283,7 @@ export default function ProductsPage() {
                                             "hover:bg-zinc-900/50 transition-colors group",
                                             selectedIds.includes(item.id) && "bg-primary/5"
                                         )}>
-                                            <td className="px-4 py-4">
+                                            <td className="px-3 py-3">
                                                 <input
                                                     type="checkbox"
                                                     checked={selectedIds.includes(item.id)}
@@ -291,70 +291,70 @@ export default function ProductsPage() {
                                                     className="w-4 h-4 accent-primary rounded"
                                                 />
                                             </td>
-                                            <td className="px-6 py-4">
-                                                <div className="w-24 h-24 bg-zinc-900 rounded-lg border border-zinc-800 flex items-center justify-center overflow-hidden">
+                                            <td className="px-4 py-3">
+                                                <div className="w-20 h-20 bg-zinc-900 rounded-lg border border-zinc-800 flex items-center justify-center overflow-hidden">
                                                     {item.image ? (
                                                         <img src={item.image} alt={item.name} className="w-full h-full object-contain p-1 group-hover:scale-105 transition-transform duration-500" />
                                                     ) : (
-                                                        <Package className="w-8 h-8 text-zinc-700" />
+                                                        <Package className="w-7 h-7 text-zinc-700" />
                                                     )}
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4">
+                                            <td className="px-4 py-3">
                                                 <div className="text-zinc-300 font-medium">{item.brand || '-'}</div>
                                             </td>
-                                            <td className="px-6 py-4">
-                                                <div className="font-medium text-lg text-white">{item.name}</div>
+                                            <td className="px-4 py-3">
+                                                <div className="font-medium text-sm text-white">{item.name}</div>
                                             </td>
-                                            <td className="px-6 py-4">
+                                            <td className="px-4 py-3">
                                                 <div className="text-zinc-400 font-mono">{item.stockCode || '-'}</div>
                                             </td>
-                                            <td className="px-6 py-4 font-mono text-zinc-500">
+                                            <td className="px-4 py-3 font-mono text-zinc-500">
                                                 {item.barcode}
                                             </td>
-                                            <td className="px-6 py-4 text-center">
-                                                <span className={`px-3 py-1 rounded-full text-sm font-bold ${item.quantity > 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                                            <td className="px-4 py-3 text-center">
+                                                <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${item.quantity > 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
                                                     {item.quantity}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-4 text-right text-zinc-400">
+                                            <td className="px-4 py-3 text-right text-zinc-400">
                                                 %{item.vatRate || 0}
                                             </td>
-                                            <td className="px-6 py-4 text-right text-zinc-400">
+                                            <td className="px-4 py-3 text-right text-zinc-400">
                                                 {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(item.buyPrice) || 0)}
                                             </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <div className="font-bold text-white text-lg">
+                                            <td className="px-4 py-3 text-right">
+                                                <div className="font-bold text-white text-sm">
                                                     {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(item.sellPrice) || 0)}
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <div className="flex items-center justify-end gap-1">
+                                            <td className="px-4 py-3 text-right">
+                                                <div className="flex items-center justify-end gap-0.5">
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="text-green-500 hover:text-green-400 hover:bg-green-500/10"
+                                                        className="h-8 w-8 text-green-500 hover:text-green-400 hover:bg-green-500/10"
                                                         onClick={() => setTransactionModal({ item, type: 'IN' })}
                                                         title="Stok Giriş / Alış"
                                                     >
-                                                        <PlusCircle className="w-5 h-5" />
+                                                        <PlusCircle className="w-4 h-4" />
                                                     </Button>
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="text-red-500 hover:text-red-400 hover:bg-red-500/10"
+                                                        className="h-8 w-8 text-red-500 hover:text-red-400 hover:bg-red-500/10"
                                                         onClick={() => setTransactionModal({ item, type: 'OUT' })}
                                                         title="Stok Çıkış / Satış"
                                                     >
-                                                        <MinusCircle className="w-5 h-5" />
+                                                        <MinusCircle className="w-4 h-4" />
                                                     </Button>
-                                                    <Button variant="ghost" size="icon" onClick={() => setEditingItem(item)} title="Düzenle">
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingItem(item)} title="Düzenle">
                                                         <Edit className="w-4 h-4" />
                                                     </Button>
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="text-red-500 hover:text-red-400 hover:bg-red-500/10"
+                                                        className="h-8 w-8 text-red-500 hover:text-red-400 hover:bg-red-500/10"
                                                         onClick={() => setDeletingId(item.id)}
                                                         title="Sil"
                                                     >
@@ -379,6 +379,9 @@ export default function ProductsPage() {
                                 <DialogTitle className={transactionModal.type === 'IN' ? 'text-green-500' : 'text-red-500'}>
                                     {transactionModal.type === 'IN' ? 'Stok Giriş / Alış' : 'Stok Çıkış / Satış'}
                                 </DialogTitle>
+                                <DialogDescription className="sr-only">
+                                    Seçili ürün için stok hareketi ekleme penceresi.
+                                </DialogDescription>
                             </DialogHeader>
                             <div className="py-4">
                                 <p className="font-medium text-white">{transactionModal.item.name}</p>
@@ -418,6 +421,9 @@ export default function ProductsPage() {
                         <div className="p-6">
                             <DialogHeader className="mb-4">
                                 <DialogTitle className="text-xl font-bold">Ürün Düzenle</DialogTitle>
+                                <DialogDescription className="sr-only">
+                                    Ürün bilgilerini düzenleme formu.
+                                </DialogDescription>
                             </DialogHeader>
                             <form onSubmit={handleUpdate} className="space-y-4 pt-4">
                                 <div className="space-y-2">
@@ -527,6 +533,9 @@ export default function ProductsPage() {
                             <Trash2 className="w-5 h-5" />
                             Ürünü Sil?
                         </DialogTitle>
+                        <DialogDescription className="sr-only">
+                            Seçili ürünü silme onayı.
+                        </DialogDescription>
                     </DialogHeader>
                     <div className="py-4">
                         <p className="text-zinc-300">Bu ürünü silmek istediğinize emin misiniz? Bu işlem geri alınamaz.</p>
@@ -561,6 +570,9 @@ export default function ProductsPage() {
                             <Trash2 className="w-5 h-5" />
                             Toplu Silme Onayı
                         </DialogTitle>
+                        <DialogDescription className="sr-only">
+                            Seçili ürünleri toplu silme onayı.
+                        </DialogDescription>
                     </DialogHeader>
                     <div className="py-4">
                         <p className="text-zinc-300">

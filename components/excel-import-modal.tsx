@@ -4,7 +4,7 @@ import { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Upload, FileSpreadsheet, Download, AlertCircle, CheckCircle } from 'lucide-react';
 import { useStockStore } from '@/lib/store';
@@ -147,12 +147,12 @@ export default function ExcelImportModal() {
                 </Button>
             </DialogTrigger>
             <DialogContent className="bg-zinc-950 border-zinc-800 max-w-2xl">
-                <CardHeader>
-                    <CardTitle>Excel İle Toplu Ürün Yükleme</CardTitle>
-                    <CardDescription>
+                <DialogHeader>
+                    <DialogTitle>Excel İle Toplu Ürün Yükleme</DialogTitle>
+                    <DialogDescription>
                         Ürünlerinizi Excel dosyasından hızlıca içe aktarın.
-                    </CardDescription>
-                </CardHeader>
+                    </DialogDescription>
+                </DialogHeader>
                 <CardContent className="space-y-6">
                     {/* Instructions */}
                     <div className="bg-blue-900/20 border border-blue-900/50 rounded-lg p-4 text-sm text-blue-200 space-y-2">

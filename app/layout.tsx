@@ -12,8 +12,8 @@ export const metadata: Metadata = {
   title: 'URUNX | SPEEDSPOR',
   description: 'Hızlı ve Profesyonel Stok Takip Sistemi',
   icons: {
-    icon: '/favicon.ico',
-    shortcut: '/favicon.ico',
+    icon: '/icon.png',
+    shortcut: '/icon.png',
     apple: '/icon.png',
   },
   openGraph: {
