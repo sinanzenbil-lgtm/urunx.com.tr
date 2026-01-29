@@ -162,15 +162,6 @@ export async function bulkAddItems(items: StockItem[]) {
                         ${item.description}, ${item.brand}, ${item.vatRate}, ${item.buyPrice}, 
                         ${item.sellPrice}, ${item.quantity}, ${item.createdAt}, ${item.updatedAt}
                     )
-                    ON CONFLICT (barcode) DO UPDATE SET
-                        name = EXCLUDED.name,
-                        brand = EXCLUDED.brand,
-                        stock_code = EXCLUDED.stock_code,
-                        buy_price = EXCLUDED.buy_price,
-                        sell_price = EXCLUDED.sell_price,
-                        quantity = EXCLUDED.quantity,
-                        vat_rate = EXCLUDED.vat_rate,
-                        updated_at = EXCLUDED.updated_at
                 `;
             }
 

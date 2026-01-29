@@ -8,7 +8,7 @@ export async function setupDatabase() {
         await sql`
       CREATE TABLE IF NOT EXISTS items (
         id TEXT PRIMARY KEY,
-        barcode TEXT UNIQUE NOT NULL,
+        barcode TEXT,
         stock_code TEXT,
         name TEXT NOT NULL,
         image TEXT,
@@ -22,6 +22,10 @@ export async function setupDatabase() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `;
+
+        await sql`ALTER TABLE items DROP CONSTRAINT IF EXISTS items_barcode_key;`;
+        await sql`DROP INDEX IF EXISTS items_barcode_key;`;
+        await sql`ALTER TABLE items ALTER COLUMN barcode DROP NOT NULL;`;
 
         // Create transactions table
         await sql`

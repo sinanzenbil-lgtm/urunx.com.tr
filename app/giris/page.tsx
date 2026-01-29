@@ -173,8 +173,8 @@ export default function EntryPage() {
     };
 
     const onNewItemSubmit = async (data: any) => {
-        const barcodeValue = (data.barcode || '').trim() || uuidv4().slice(0, 8).toUpperCase();
-        const stockCodeValue = (data.stockCode || '').trim() || `SK-${barcodeValue}`;
+        const barcodeValue = (data.barcode || '').trim();
+        const stockCodeValue = (data.stockCode || '').trim();
 
         const newItem = {
             id: uuidv4(),
