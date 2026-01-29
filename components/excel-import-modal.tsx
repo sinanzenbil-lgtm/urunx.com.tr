@@ -88,6 +88,7 @@ export default function ExcelImportModal() {
         // Upload in chunks of 50 to avoid timeout
         const CHUNK_SIZE = 50;
         let successCount = 0;
+        let failedChunks = [];
 
         for (let i = 0; i < itemsToImport.length; i += CHUNK_SIZE) {
             const chunk = itemsToImport.slice(i, i + CHUNK_SIZE);
@@ -95,20 +96,29 @@ export default function ExcelImportModal() {
 
             toast.loading(`Yükleniyor: ${progress}/${itemsToImport.length}`, { id: 'upload-progress' });
 
-            const result = await bulkAddItems(chunk);
-            if (result.success) {
-                chunk.forEach(item => addItem(item)); // Keep local store in sync
-                successCount += chunk.length;
-            } else {
-                toast.error(`Hata: ${i}-${progress} arası yüklenemedi`);
-                break;
+            try {
+                const result = await bulkAddItems(chunk);
+                if (result.success) {
+                    chunk.forEach(item => addItem(item)); // Keep local store in sync
+                    successCount += chunk.length;
+                } else {
+                    console.error('Chunk upload failed:', result.error);
+                    failedChunks.push(`${i + 1}-${progress}`);
+                }
+            } catch (error) {
+                console.error('Chunk upload error:', error);
+                failedChunks.push(`${i + 1}-${progress}`);
             }
         }
 
         toast.dismiss('upload-progress');
 
         if (successCount > 0) {
-            toast.success(`İçe aktarım tamamlandı: ${successCount} ürün başarıyla yüklendi.`);
+            if (failedChunks.length > 0) {
+                toast.warning(`${successCount} ürün yüklendi. Başarısız: ${failedChunks.join(', ')}`);
+            } else {
+                toast.success(`İçe aktarım tamamlandı: ${successCount} ürün başarıyla yüklendi.`);
+            }
         } else {
             toast.error('Veritabanına yükleme yapılırken hata oluştu.');
         }
