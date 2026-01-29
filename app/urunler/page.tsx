@@ -10,9 +10,10 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { StockItem } from '@/types';
-import { Package, Scan, Search, Edit, X, PlusCircle, MinusCircle, Trash2 } from 'lucide-react';
+import { Package, Scan, Search, Edit, X, PlusCircle, MinusCircle, Trash2, Download } from 'lucide-react';
 import * as dbActions from '@/lib/actions';
 import { cn } from '@/lib/utils';
+import * as XLSX from 'xlsx';
 
 export default function ProductsPage() {
     const items = useStockStore((state) => state.items);
@@ -42,6 +43,32 @@ export default function ProductsPage() {
 
         return matchesSearch && matchesBrand;
     });
+
+    const handleExportExcel = () => {
+        if (filteredItems.length === 0) {
+            toast.error('İndirilecek ürün bulunamadı');
+            return;
+        }
+
+        const headers = ['UrunAdi', 'Barkod', 'StokKodu', 'Marka', 'AlisFiyati', 'SatisFiyati', 'StokAdedi', 'KDV', 'ResimURL'];
+        const rows = filteredItems.map((item) => [
+            item.name || '',
+            item.barcode || '',
+            item.stockCode || '',
+            item.brand || '',
+            Number(item.buyPrice) || 0,
+            Number(item.sellPrice) || 0,
+            Number(item.quantity) || 0,
+            Number(item.vatRate) || 0,
+            item.image || '',
+        ]);
+
+        const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Urunler');
+        XLSX.writeFile(workbook, 'Urunx_Urun_Listesi.xlsx');
+        toast.success(`Excel indirildi (${filteredItems.length} ürün)`);
+    };
 
     const toggleSelectAll = () => {
         if (selectedIds.length === filteredItems.length) {
@@ -197,6 +224,14 @@ export default function ProductsPage() {
                             </Button>
                         )}
                         <ExcelImportModal />
+                        <Button
+                            variant="outline"
+                            onClick={handleExportExcel}
+                            className="gap-2 border-zinc-700 text-zinc-200 hover:bg-zinc-900"
+                        >
+                            <Download className="w-4 h-4" />
+                            Excel İndir
+                        </Button>
                         <Link href="/giris?mode=new">
                             <Button className="gap-2 bg-green-600 hover:bg-green-700 text-white shadow-[0_0_15px_-3px_rgba(22,163,74,0.5)]">
                                 <PlusCircle className="w-5 h-5" />
