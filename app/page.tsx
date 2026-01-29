@@ -21,8 +21,20 @@ export default function Home() {
 
   const totalItems = items.length;
   const totalQuantity = items.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
-  const totalValue = items.reduce((acc, item) => acc + ((Number(item.buyPrice) || 0) * (Number(item.quantity) || 0)), 0);
-  const potentialValue = items.reduce((acc, item) => acc + ((Number(item.sellPrice) || 0) * (Number(item.quantity) || 0)), 0);
+
+  // Calculate total buy value (Cost * Quantity)
+  const totalValue = items.reduce((acc, item) => {
+    const price = Number(item.buyPrice) || 0;
+    const qty = Number(item.quantity) || 0;
+    return acc + (price * qty);
+  }, 0);
+
+  // Calculate potential sell value (Sell Price * Quantity)
+  const potentialValue = items.reduce((acc, item) => {
+    const price = Number(item.sellPrice) || 0;
+    const qty = Number(item.quantity) || 0;
+    return acc + (price * qty);
+  }, 0);
 
   // Get recent transactions (flattened)
   const recentTransactions = items
