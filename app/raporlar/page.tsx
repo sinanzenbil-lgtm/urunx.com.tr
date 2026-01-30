@@ -32,6 +32,8 @@ export default function ReportsPage() {
     const [topProductsDates, setTopProductsDates] = useState({ start: yearStart, end: today });
     const [turnoverDates, setTurnoverDates] = useState({ start: yearStart, end: today });
     const [inventoryDate, setInventoryDate] = useState(today);
+    const [showNegativeStock, setShowNegativeStock] = useState(false);
+    const [showLowestTurnover, setShowLowestTurnover] = useState(false);
 
     // Helper: Curreny Formatter
     const formatCurrency = (val: number) => {
@@ -194,8 +196,12 @@ export default function ReportsPage() {
                 ...s,
                 score
             };
-        }).sort((a, b) => b.score - a.score).slice(0, 10);
+        }).sort((a, b) => b.score - a.score);
     }, [items, turnoverDates]);
+
+    const displayedTurnover = showLowestTurnover
+        ? [...stockTurnoverReport].reverse().slice(0, 10)
+        : stockTurnoverReport.slice(0, 10);
 
     const noSalesReport = useMemo(() => {
         const start = new Date(turnoverDates.start);
@@ -211,6 +217,12 @@ export default function ReportsPage() {
             return !hasSales;
         }).slice(0, 6);
     }, [items, turnoverDates]);
+
+    const negativeStockItems = useMemo(() => {
+        return items
+            .filter(item => (Number(item.quantity) || 0) < 0)
+            .sort((a, b) => (Number(a.quantity) || 0) - (Number(b.quantity) || 0));
+    }, [items]);
 
     return (
         <div className="space-y-8 animate-enter pb-20">
@@ -398,6 +410,28 @@ export default function ReportsPage() {
                                 <span className="text-zinc-500">Aktif Satıştaki Ürünler</span>
                                 <span className="text-green-500 font-bold">{items.filter(i => i.quantity > 0).length} Ürün</span>
                             </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowNegativeStock((prev) => !prev)}
+                                className="w-full flex items-center justify-between text-xs px-2 py-2 rounded-md bg-zinc-950/50 border border-white/5 hover:border-red-500/30 transition-colors"
+                            >
+                                <span className="text-zinc-400">Eksi Stokta Olanlar</span>
+                                <span className="text-red-400 font-bold">{negativeStockItems.length} Ürün</span>
+                            </button>
+                            {showNegativeStock && (
+                                <div className="space-y-2 pt-2">
+                                    {negativeStockItems.length === 0 ? (
+                                        <p className="text-xs text-zinc-500 px-1">Eksi stokta ürün yok.</p>
+                                    ) : (
+                                        negativeStockItems.map((item) => (
+                                            <div key={item.id} className="flex items-center justify-between text-xs bg-zinc-950/60 p-2 rounded-md border border-white/5">
+                                                <span className="truncate text-zinc-200">{item.name}</span>
+                                                <span className="text-red-400 font-mono">{item.quantity} adet</span>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            )}
                         </div>
 
                         <div className="pt-4 border-t border-white/5">
@@ -429,28 +463,38 @@ export default function ReportsPage() {
                             <BarChart3 className="w-5 h-5 text-emerald-400" />
                             <CardTitle className="text-lg">Stok Devir Hızı Skoru</CardTitle>
                         </div>
-                        <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-lg border border-white/5 self-start">
-                            <Input
-                                type="date"
-                                className="bg-transparent border-0 h-7 text-[10px] w-28 p-1 focus-visible:ring-0"
-                                value={turnoverDates.start}
-                                onChange={(e) => setTurnoverDates(prev => ({ ...prev, start: e.target.value }))}
-                            />
-                            <ArrowRight className="w-3 h-3 text-zinc-700" />
-                            <Input
-                                type="date"
-                                className="bg-transparent border-0 h-7 text-[10px] w-28 p-1 focus-visible:ring-0"
-                                value={turnoverDates.end}
-                                onChange={(e) => setTurnoverDates(prev => ({ ...prev, end: e.target.value }))}
-                            />
+                        <div className="flex flex-wrap items-center gap-2 self-start">
+                            <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-lg border border-white/5">
+                                <Input
+                                    type="date"
+                                    className="bg-transparent border-0 h-7 text-[10px] w-28 p-1 focus-visible:ring-0"
+                                    value={turnoverDates.start}
+                                    onChange={(e) => setTurnoverDates(prev => ({ ...prev, start: e.target.value }))}
+                                />
+                                <ArrowRight className="w-3 h-3 text-zinc-700" />
+                                <Input
+                                    type="date"
+                                    className="bg-transparent border-0 h-7 text-[10px] w-28 p-1 focus-visible:ring-0"
+                                    value={turnoverDates.end}
+                                    onChange={(e) => setTurnoverDates(prev => ({ ...prev, end: e.target.value }))}
+                                />
+                            </div>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setShowLowestTurnover((prev) => !prev)}
+                                className="h-8 px-3 text-[10px] border-white/10 text-zinc-300 hover:bg-zinc-900"
+                            >
+                                {showLowestTurnover ? 'En Yüksek Skor' : 'En Düşük Skor'}
+                            </Button>
                         </div>
                     </CardHeader>
                     <CardContent>
-                        {stockTurnoverReport.length === 0 ? (
+                        {displayedTurnover.length === 0 ? (
                             <p className="text-center py-10 text-zinc-600">Bu dönemde satış bulunmuyor.</p>
                         ) : (
                             <div className="space-y-3">
-                                {stockTurnoverReport.map((item, i) => (
+                                {displayedTurnover.map((item, i) => (
                                     <div key={item.id} className="flex items-center gap-4 bg-zinc-950/50 p-3 rounded-xl border border-white/5">
                                         <div className="text-2xl font-black text-white/10 w-6">{i + 1}</div>
                                         <div className="w-10 h-10 bg-zinc-900 rounded-lg overflow-hidden border border-white/5 flex-shrink-0">

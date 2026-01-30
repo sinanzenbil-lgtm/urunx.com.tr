@@ -27,6 +27,7 @@ export default function ProductsPage() {
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
     const [transactionModal, setTransactionModal] = useState<{ item: StockItem, type: 'IN' | 'OUT' } | null>(null);
+    const [transactionsItem, setTransactionsItem] = useState<StockItem | null>(null);
     const [imageUrlInput, setImageUrlInput] = useState('');
     const [selectedBrand, setSelectedBrand] = useState<string>('');
 
@@ -315,14 +316,15 @@ export default function ProductsPage() {
                                 ) : (
                                     filteredItems.map((item) => (
                                         <tr key={item.id} className={cn(
-                                            "hover:bg-zinc-900/50 transition-colors group",
+                                            "hover:bg-zinc-900/50 transition-colors group cursor-pointer",
                                             selectedIds.includes(item.id) && "bg-primary/5"
-                                        )}>
+                                        )} onClick={() => setTransactionsItem(item)}>
                                             <td className="px-3 py-3">
                                                 <input
                                                     type="checkbox"
                                                     checked={selectedIds.includes(item.id)}
                                                     onChange={() => toggleSelect(item.id)}
+                                                    onClick={(e) => e.stopPropagation()}
                                                     className="w-4 h-4 accent-primary rounded"
                                                 />
                                             </td>
@@ -369,7 +371,10 @@ export default function ProductsPage() {
                                                         variant="ghost"
                                                         size="icon"
                                                         className="h-8 w-8 text-green-500 hover:text-green-400 hover:bg-green-500/10"
-                                                        onClick={() => setTransactionModal({ item, type: 'IN' })}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setTransactionModal({ item, type: 'IN' });
+                                                        }}
                                                         title="Stok Giriş / Alış"
                                                     >
                                                         <PlusCircle className="w-4 h-4" />
@@ -378,19 +383,34 @@ export default function ProductsPage() {
                                                         variant="ghost"
                                                         size="icon"
                                                         className="h-8 w-8 text-red-500 hover:text-red-400 hover:bg-red-500/10"
-                                                        onClick={() => setTransactionModal({ item, type: 'OUT' })}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setTransactionModal({ item, type: 'OUT' });
+                                                        }}
                                                         title="Stok Çıkış / Satış"
                                                     >
                                                         <MinusCircle className="w-4 h-4" />
                                                     </Button>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingItem(item)} title="Düzenle">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setEditingItem(item);
+                                                        }}
+                                                        title="Düzenle"
+                                                    >
                                                         <Edit className="w-4 h-4" />
                                                     </Button>
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
                                                         className="h-8 w-8 text-red-500 hover:text-red-400 hover:bg-red-500/10"
-                                                        onClick={() => setDeletingId(item.id)}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setDeletingId(item.id);
+                                                        }}
                                                         title="Sil"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
@@ -445,6 +465,49 @@ export default function ProductsPage() {
                                     </Button>
                                 </div>
                             </form>
+                        </>
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!transactionsItem} onOpenChange={(open) => !open && setTransactionsItem(null)}>
+                <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 p-6">
+                    {transactionsItem && (
+                        <>
+                            <DialogHeader>
+                                <DialogTitle>Ürün Hareketleri</DialogTitle>
+                                <DialogDescription>
+                                    {transactionsItem.name} için son hareketler
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="mt-2 space-y-3 max-h-[60vh] overflow-auto">
+                                {transactionsItem.transactions.length === 0 ? (
+                                    <p className="text-sm text-zinc-500">Bu ürün için hareket bulunamadı.</p>
+                                ) : (
+                                    transactionsItem.transactions
+                                        .slice()
+                                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                                        .map((t) => (
+                                            <div key={t.id} className="flex items-center justify-between border-b border-white/5 pb-2 last:border-0">
+                                                <div>
+                                                    <p className="text-sm font-medium text-white">
+                                                        {t.type === 'IN' ? 'Giriş' : 'Çıkış'} • {t.quantity} adet
+                                                    </p>
+                                                    <p className="text-xs text-zinc-500">{new Date(t.date).toLocaleString('tr-TR')}</p>
+                                                    {t.channel && (
+                                                        <p className="text-xs text-zinc-500">{t.channel}</p>
+                                                    )}
+                                                </div>
+                                                <span className={cn(
+                                                    "text-xs font-bold px-2 py-1 rounded-full",
+                                                    t.type === 'IN' ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"
+                                                )}>
+                                                    {t.type === 'IN' ? '+' : '-'}{t.quantity}
+                                                </span>
+                                            </div>
+                                        ))
+                                )}
+                            </div>
                         </>
                     )}
                 </DialogContent>

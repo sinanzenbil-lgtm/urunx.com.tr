@@ -4,7 +4,7 @@ import { useStockStore } from '@/lib/store';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Search, ArrowDownCircle, ArrowUpCircle, Trash2, Package } from 'lucide-react';
 import { useState } from 'react';
@@ -15,9 +15,14 @@ export default function MovementsPage() {
     const items = useStockStore((state) => state.items);
     const removeStoreTransactions = useStockStore((state) => state.removeTransactions);
 
+    const yearStart = `${new Date().getFullYear()}-01-01`;
+    const today = new Date().toISOString().split('T')[0];
+
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+    const [dateRange, setDateRange] = useState({ start: yearStart, end: today });
+    const [typeFilter, setTypeFilter] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
 
     // Flatten all transactions from all items
     const allTransactions = items.flatMap(item =>
@@ -30,12 +35,24 @@ export default function MovementsPage() {
         }))
     ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-    const filteredTransactions = allTransactions.filter(t =>
-        t.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.barcode.includes(searchQuery) ||
-        t.brand?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        t.channel?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const filteredTransactions = allTransactions.filter(t => {
+        const matchesSearch =
+            t.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            t.barcode.includes(searchQuery) ||
+            t.brand?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            t.channel?.toLowerCase().includes(searchQuery.toLowerCase());
+
+        const matchesType = typeFilter === 'ALL' ? true : t.type === typeFilter;
+
+        const start = new Date(dateRange.start);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(dateRange.end);
+        end.setHours(23, 59, 59, 999);
+        const tDate = new Date(t.date);
+        const matchesDate = tDate >= start && tDate <= end;
+
+        return matchesSearch && matchesType && matchesDate;
+    });
 
     const toggleSelectAll = () => {
         if (selectedIds.length === filteredTransactions.length) {
@@ -88,14 +105,43 @@ export default function MovementsPage() {
                         </Button>
                     )}
                 </div>
-                <div className="relative w-full">
-                    <Search className="absolute left-3 top-3 w-5 h-5 text-zinc-500" />
-                    <Input
-                        placeholder="Ürün adı, barkod, marka veya kanal ara..."
-                        className="pl-10 h-12 text-lg bg-zinc-900/50 border-zinc-800 focus:border-primary/50"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                    />
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                    <div className="relative w-full">
+                        <Search className="absolute left-3 top-3 w-5 h-5 text-zinc-500" />
+                        <Input
+                            placeholder="Ürün adı, barkod, marka veya kanal ara..."
+                            className="pl-10 h-12 text-lg bg-zinc-900/50 border-zinc-800 focus:border-primary/50"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                    </div>
+                    <div className="flex items-center gap-2 bg-zinc-900/50 border border-zinc-800 rounded-lg px-3 py-2">
+                        <Input
+                            type="date"
+                            className="bg-transparent border-0 h-9 text-xs w-full p-1 focus-visible:ring-0"
+                            value={dateRange.start}
+                            onChange={(e) => setDateRange((prev) => ({ ...prev, start: e.target.value }))}
+                        />
+                        <span className="text-xs text-zinc-600">→</span>
+                        <Input
+                            type="date"
+                            className="bg-transparent border-0 h-9 text-xs w-full p-1 focus-visible:ring-0"
+                            value={dateRange.end}
+                            onChange={(e) => setDateRange((prev) => ({ ...prev, end: e.target.value }))}
+                        />
+                    </div>
+                    <div className="flex items-center justify-between gap-2 bg-zinc-900/50 border border-zinc-800 rounded-lg px-3 py-2">
+                        <span className="text-xs text-zinc-500">İşlem Tipi</span>
+                        <select
+                            value={typeFilter}
+                            onChange={(e) => setTypeFilter(e.target.value as 'ALL' | 'IN' | 'OUT')}
+                            className="h-9 px-3 rounded-md bg-zinc-900 border border-zinc-800 text-white focus:border-primary/50 focus:outline-none"
+                        >
+                            <option value="ALL">Tümü</option>
+                            <option value="IN">Alış (Giriş)</option>
+                            <option value="OUT">Satış (Çıkış)</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
@@ -196,6 +242,9 @@ export default function MovementsPage() {
                             <Trash2 className="w-5 h-5" />
                             Hareket Kayıtlarını Sil
                         </DialogTitle>
+                        <DialogDescription className="sr-only">
+                            Seçili hareket kayıtlarını silme onayı.
+                        </DialogDescription>
                     </DialogHeader>
                     <div className="py-4 space-y-3">
                         <p className="text-zinc-300">

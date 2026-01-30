@@ -105,6 +105,11 @@ export default function Home() {
       .slice(0, 8);
   }, [items]);
 
+  const totalSalesBuy =
+    salesSummary.Pazaryeri.buyTotal + salesSummary.Perakende.buyTotal + salesSummary.Toptan.buyTotal;
+  const totalSalesSell =
+    salesSummary.Pazaryeri.sellTotal + salesSummary.Perakende.sellTotal + salesSummary.Toptan.sellTotal;
+
   if (!mounted) return null;
 
   return (
@@ -290,15 +295,14 @@ export default function Home() {
               <div className="text-right">
                 <p className="text-sm text-zinc-400">Alış Toplamı</p>
                 <p className="text-xl font-bold text-emerald-400">
-                  {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(
-                    salesSummary.Pazaryeri.buyTotal + salesSummary.Perakende.buyTotal + salesSummary.Toptan.buyTotal
-                  )}
+                  {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(totalSalesBuy)}
                 </p>
                 <p className="text-sm text-zinc-400 mt-1">Satış Toplamı</p>
                 <p className="text-xl font-bold text-blue-400">
-                  {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(
-                    salesSummary.Pazaryeri.sellTotal + salesSummary.Perakende.sellTotal + salesSummary.Toptan.sellTotal
-                  )}
+                  {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(totalSalesSell)}
+                </p>
+                <p className="text-xs text-zinc-500 mt-1">
+                  Satışların maliyeti: {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(totalSalesBuy)}
                 </p>
               </div>
             </div>
