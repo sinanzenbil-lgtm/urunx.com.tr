@@ -533,10 +533,11 @@ export default function ProductsPage() {
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
-                                        <label className="text-sm font-medium">Marka</label>
+                                        <label className="text-sm font-medium">Barkod</label>
                                         <Input
-                                            value={editingItem.brand || ''}
-                                            onChange={(e) => setEditingItem({ ...editingItem, brand: e.target.value })}
+                                            value={editingItem.barcode}
+                                            onChange={(e) => setEditingItem({ ...editingItem, barcode: e.target.value })}
+                                            placeholder="Barkod"
                                         />
                                     </div>
                                     <div className="space-y-2">
@@ -544,6 +545,14 @@ export default function ProductsPage() {
                                         <Input
                                             value={editingItem.stockCode || ''}
                                             onChange={(e) => setEditingItem({ ...editingItem, stockCode: e.target.value })}
+                                            placeholder="Stok kodu"
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium">Marka</label>
+                                        <Input
+                                            value={editingItem.brand || ''}
+                                            onChange={(e) => setEditingItem({ ...editingItem, brand: e.target.value })}
                                         />
                                     </div>
                                     <div className="space-y-2">

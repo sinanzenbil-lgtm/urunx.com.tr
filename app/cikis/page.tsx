@@ -5,6 +5,7 @@ import { useStockStore } from '@/lib/store';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Scan, Trash2, Save, ShoppingCart, Store, User, Building2, Search, X, Package } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
@@ -24,6 +25,7 @@ export default function ExitPage() {
     const [barcode, setBarcode] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [cart, setCart] = useState<CartItem[]>([]);
+    const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
 
     const inputRef = useRef<HTMLInputElement>(null);
     const getItemByBarcode = useStockStore((state) => state.getItemByBarcode);
@@ -92,6 +94,9 @@ export default function ExitPage() {
 
         if (hasError) return;
 
+        setSaveConfirmOpen(false);
+        const toastId = toast.loading('Kaydediliyor...');
+
         const promises = cart.map(cartItem => {
             const newTransaction = {
                 id: uuidv4(),
@@ -109,13 +114,26 @@ export default function ExitPage() {
 
         try {
             await Promise.all(promises);
-            toast.success(`${cart.length} kalem ürünün satışı tamamlandı.`);
+            toast.success(`${cart.length} kalem ürünün satışı tamamlandı.`, { id: toastId });
             setCart([]);
             inputRef.current?.focus();
         } catch (error) {
-            toast.error('Satış kaydedilirken bir hata oluştu');
+            toast.error('Satış kaydedilirken bir hata oluştu', { id: toastId });
             console.error(error);
         }
+    };
+
+    const handleSaveClick = () => {
+        if (cart.length === 0) return;
+        let hasError = false;
+        cart.forEach(cartItem => {
+            if (cartItem.stockItem.quantity < cartItem.quantity) {
+                toast.error(`${cartItem.stockItem.name} için yetersiz stok!`);
+                hasError = true;
+            }
+        });
+        if (hasError) return;
+        setSaveConfirmOpen(true);
     };
 
     return (
@@ -319,12 +337,32 @@ export default function ExitPage() {
                         <Button
                             size="lg"
                             className="bg-red-600 hover:bg-red-700 text-white px-8 h-16 text-xl gap-2 shadow-[0_0_20px_-5px_rgba(220,38,38,0.5)]"
-                            onClick={completeSale}
+                            onClick={handleSaveClick}
                         >
                             <Save className="w-6 h-6" />
                             HIZLI SATIŞI KAYDET
                         </Button>
                     </div>
+
+                    <Dialog open={saveConfirmOpen} onOpenChange={setSaveConfirmOpen}>
+                        <DialogContent className="sm:max-w-md border-zinc-800">
+                            <DialogHeader>
+                                <DialogTitle>Satışı kaydet</DialogTitle>
+                                <DialogDescription>
+                                    Bu satışı kaydetmek istediğinize emin misiniz? {cart.length} çeşit, toplam {cart.reduce((acc, item) => acc + item.quantity, 0)} adet ürün stoktan düşülecektir.
+                                </DialogDescription>
+                            </DialogHeader>
+                            <DialogFooter className="gap-2 sm:gap-0">
+                                <Button variant="outline" onClick={() => setSaveConfirmOpen(false)} className="border-zinc-700">
+                                    İptal
+                                </Button>
+                                <Button className="bg-red-600 hover:bg-red-700" onClick={completeSale}>
+                                    <Save className="w-4 h-4 mr-2" />
+                                    Kaydet
+                                </Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
                 </div>
             )}
 
