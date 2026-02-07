@@ -163,7 +163,7 @@ export default function Home() {
             <div className="text-2xl font-bold text-blue-500">
               {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(potentialValue)}
             </div>
-            <p className="text-xs text-zinc-500">Satış fiyatı bazlı değer</p>
+            <p className="text-xs text-zinc-500">Toptan satış fiyatı bazlı değer</p>
           </CardContent>
         </Card>
       </div>
@@ -212,7 +212,7 @@ export default function Home() {
                     <th className="px-4 py-3 text-center">Çeşit</th>
                     <th className="px-4 py-3 text-center">Adet</th>
                     <th className="px-4 py-3 text-right">Maliyet (TL)</th>
-                    <th className="px-4 py-3 text-right rounded-tr-lg">Potansiyel Satış (TL)</th>
+                    <th className="px-4 py-3 text-right rounded-tr-lg">Potansiyel Toptan Satış (TL)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800">

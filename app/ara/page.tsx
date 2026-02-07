@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useStockStore } from '@/lib/store';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -8,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Search, Edit, Trash2, X, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { StockItem } from '@/types';
+import * as dbActions from '@/lib/actions';
 
 export default function SearchPage() {
     const [query, setQuery] = useState('');
@@ -21,14 +23,18 @@ export default function SearchPage() {
     // searchItems return all containing empty string which is everything.
     const results = searchItems(query);
 
-    const handleUpdate = (e: React.FormEvent) => {
+    const handleUpdate = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!editingItem) return;
 
-        // In a real app we would use a form library here too, but simple object modification is enough
-        updateItem(editingItem.id, editingItem);
-        toast.success('Ürün güncellendi');
-        setEditingItem(null);
+        const result = await dbActions.updateItem(editingItem.id, editingItem);
+        if (result.success) {
+            updateItem(editingItem.id, editingItem);
+            toast.success('Ürün güncellendi');
+            setEditingItem(null);
+        } else {
+            toast.error('Güncelleme kaydedilemedi');
+        }
     };
 
     const handleDelete = (id: string) => {
@@ -74,17 +80,19 @@ export default function SearchPage() {
                                 <div className="text-xs text-zinc-500 font-mono">{item.barcode}</div>
                             </CardHeader>
                             <CardContent>
-                                {item.image && (
-                                    <div className="aspect-video relative mb-4 rounded-md overflow-hidden bg-white/5">
+                                <div className="aspect-video relative mb-4 rounded-md overflow-hidden bg-white/5 flex items-center justify-center">
+                                    {item.image ? (
                                         <img src={item.image} alt={item.name} className="object-cover w-full h-full" />
-                                    </div>
-                                )}
+                                    ) : null}
+                                </div>
                                 <div className="grid grid-cols-2 gap-2 text-sm">
                                     <div className="text-zinc-400">Marka</div>
                                     <div className="text-right">{item.brand || '-'}</div>
                                     <div className="text-zinc-400">Stok</div>
                                     <div className="text-right font-bold text-white">{item.quantity}</div>
-                                    <div className="text-zinc-400">Satış</div>
+                                    <div className="text-zinc-400">Alış</div>
+                                    <div className="text-right text-zinc-300">{Number(item.buyPrice) ?? 0} ₺</div>
+                                    <div className="text-zinc-400">Toptan Satış</div>
                                     <div className="text-right font-bold text-primary">{item.sellPrice} ₺</div>
                                 </div>
                             </CardContent>
@@ -93,10 +101,10 @@ export default function SearchPage() {
                 )}
             </div>
 
-            {/* Edit Modal (Simple overlay) */}
-            {editingItem && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-                    <Card className="w-full max-w-lg bg-zinc-950 border-zinc-800">
+            {/* Edit Modal - portal ile body'e render, her zaman en üstte görünsün */}
+            {editingItem && typeof document !== 'undefined' && createPortal(
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={() => setEditingItem(null)}>
+                    <Card className="w-full max-w-lg bg-zinc-950 border-zinc-800 shadow-2xl relative z-10 max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
                         <CardHeader className="flex flex-row items-center justify-between">
                             <CardTitle>Ürün Düzenle</CardTitle>
                             <Button variant="ghost" size="icon" onClick={() => setEditingItem(null)}><X /></Button>
@@ -104,49 +112,55 @@ export default function SearchPage() {
                         <CardContent>
                             <form onSubmit={handleUpdate} className="space-y-4">
                                 <div className="space-y-2">
-                                    <label>Ürün Adı</label>
+                                    <label className="text-sm font-medium text-zinc-300">Ürün Adı</label>
                                     <Input
+                                        className="bg-zinc-900 border-zinc-700"
                                         value={editingItem.name}
                                         onChange={(e) => setEditingItem({ ...editingItem, name: e.target.value })}
                                     />
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
-                                        <label>Alış Fiyatı</label>
+                                        <label className="text-sm font-medium text-zinc-300">Alış Fiyatı</label>
                                         <Input
                                             type="number"
+                                            className="bg-zinc-900 border-zinc-700"
                                             value={editingItem.buyPrice}
                                             onChange={(e) => setEditingItem({ ...editingItem, buyPrice: parseFloat(e.target.value) })}
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <label>Satış Fiyatı</label>
+                                        <label className="text-sm font-medium text-zinc-300">Toptan Satış Fiyatı</label>
                                         <Input
                                             type="number"
+                                            className="bg-zinc-900 border-zinc-700"
                                             value={editingItem.sellPrice}
                                             onChange={(e) => setEditingItem({ ...editingItem, sellPrice: parseFloat(e.target.value) })}
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <label>Stok Adedi</label>
+                                        <label className="text-sm font-medium text-zinc-300">Stok Adedi</label>
                                         <Input
                                             type="number"
+                                            className="bg-zinc-900 border-zinc-700"
                                             value={editingItem.quantity}
                                             onChange={(e) => setEditingItem({ ...editingItem, quantity: parseInt(e.target.value) })}
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <label>KDV</label>
+                                        <label className="text-sm font-medium text-zinc-300">KDV</label>
                                         <Input
                                             type="number"
+                                            className="bg-zinc-900 border-zinc-700"
                                             value={editingItem.vatRate}
                                             onChange={(e) => setEditingItem({ ...editingItem, vatRate: parseFloat(e.target.value) })}
                                         />
                                     </div>
                                 </div>
                                 <div className="space-y-2">
-                                    <label>Resim URL</label>
+                                    <label className="text-sm font-medium text-zinc-300">Resim URL</label>
                                     <Input
+                                        className="bg-zinc-900 border-zinc-700"
                                         value={editingItem.image || ''}
                                         onChange={(e) => setEditingItem({ ...editingItem, image: e.target.value })}
                                     />
@@ -158,7 +172,8 @@ export default function SearchPage() {
                             </form>
                         </CardContent>
                     </Card>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );

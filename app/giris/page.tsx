@@ -364,7 +364,7 @@ export default function EntryPage() {
                                         <span>{foundItem.buyPrice} ₺</span>
                                     </div>
                                     <div className="flex justify-between text-sm">
-                                        <span className="text-zinc-500">Satış Fiyatı</span>
+                                        <span className="text-zinc-500">Toptan Satış Fiyatı</span>
                                         <span>{foundItem.sellPrice} ₺</span>
                                     </div>
                                 </div>
@@ -461,7 +461,7 @@ export default function EntryPage() {
                                     <Input {...register('buyPrice')} type="number" step="0.01" />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm">Satış Fiyatı (₺)</label>
+                                    <label className="text-sm">Toptan Satış Fiyatı (₺)</label>
                                     <Input {...register('sellPrice')} type="number" step="0.01" />
                                 </div>
                                 <div className="space-y-2">

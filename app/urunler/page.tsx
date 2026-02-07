@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { useStockStore } from '@/lib/store';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,6 +21,7 @@ export default function ProductsPage() {
     const removeItem = useStockStore((state) => state.removeItem);
     const addTransaction = useStockStore((state) => state.addTransaction);
 
+    const [searchInput, setSearchInput] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [editingItem, setEditingItem] = useState<StockItem | null>(null);
     const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -34,19 +35,33 @@ export default function ProductsPage() {
     const [sortBy, setSortBy] = useState<SortKey | null>(null);
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-    // Get unique brands from all items
-    const uniqueBrands = Array.from(new Set(items.map(item => item.brand).filter(Boolean))).sort();
+    // Debounce arama: yazmayı bırakınca filtre çalışsın (performans)
+    useEffect(() => {
+        const t = setTimeout(() => setSearchQuery(searchInput), 220);
+        return () => clearTimeout(t);
+    }, [searchInput]);
 
-    const filteredItems = items.filter((item) => {
-        const matchesBrand = !selectedBrand || item.brand === selectedBrand;
-        const q = searchQuery.trim().toLowerCase();
-        if (!q) return matchesBrand;
-        const matchesSearch = (item.name || '').toLowerCase().includes(q) ||
-            (item.barcode || '').toLowerCase().includes(q) ||
-            (item.stockCode || '').toLowerCase().includes(q) ||
-            (item.brand || '').toLowerCase().includes(q);
-        return matchesSearch && matchesBrand;
-    });
+    // Get unique brands from all items (marka listesi nadiren değişir)
+    const uniqueBrands = useMemo(
+        () => Array.from(new Set(items.map(item => item.brand).filter(Boolean))).sort(),
+        [items]
+    );
+
+    const toTrLower = (s: string) => (s || '').toLocaleLowerCase('tr-TR');
+    const filteredItems = useMemo(() => {
+        const q = searchQuery.trim().toLocaleLowerCase('tr-TR');
+        if (!q) {
+            return selectedBrand ? items.filter((item) => item.brand === selectedBrand) : items;
+        }
+        return items.filter((item) => {
+            const matchesBrand = !selectedBrand || item.brand === selectedBrand;
+            if (!matchesBrand) return false;
+            return toTrLower(item.name).includes(q) ||
+                toTrLower(item.barcode).includes(q) ||
+                toTrLower(item.stockCode || '').includes(q) ||
+                toTrLower(item.brand || '').includes(q);
+        });
+    }, [items, searchQuery, selectedBrand]);
 
     const sortedItems = useMemo(() => {
         if (!sortBy) return filteredItems;
@@ -54,9 +69,9 @@ export default function ProductsPage() {
             let aVal: string | number = '';
             let bVal: string | number = '';
             switch (sortBy) {
-                case 'name': aVal = (a.name || '').toLowerCase(); bVal = (b.name || '').toLowerCase(); break;
-                case 'brand': aVal = (a.brand || '').toLowerCase(); bVal = (b.brand || '').toLowerCase(); break;
-                case 'stockCode': aVal = (a.stockCode || '').toLowerCase(); bVal = (b.stockCode || '').toLowerCase(); break;
+                case 'name': aVal = (a.name || '').toLocaleLowerCase('tr-TR'); bVal = (b.name || '').toLocaleLowerCase('tr-TR'); break;
+                case 'brand': aVal = (a.brand || '').toLocaleLowerCase('tr-TR'); bVal = (b.brand || '').toLocaleLowerCase('tr-TR'); break;
+                case 'stockCode': aVal = (a.stockCode || '').toLocaleLowerCase('tr-TR'); bVal = (b.stockCode || '').toLocaleLowerCase('tr-TR'); break;
                 case 'quantity': aVal = Number(a.quantity) ?? 0; bVal = Number(b.quantity) ?? 0; break;
                 case 'buyPrice': aVal = Number(a.buyPrice) ?? 0; bVal = Number(b.buyPrice) ?? 0; break;
                 case 'sellPrice': aVal = Number(a.sellPrice) ?? 0; bVal = Number(b.sellPrice) ?? 0; break;
@@ -309,8 +324,8 @@ export default function ProductsPage() {
                     <Input
                         placeholder="Ürün adı, barkod veya stok kodu ara..."
                         className="pl-10 h-11 text-base bg-zinc-900/50 border-zinc-800 focus:border-primary/50"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
+                        value={searchInput}
+                        onChange={(e) => setSearchInput(e.target.value)}
                     />
                 </div>
 
@@ -407,7 +422,7 @@ export default function ProductsPage() {
                                     </th>
                                     <th className="px-4 py-3 text-right">
                                         <div className="flex items-center justify-end gap-1">
-                                            Satış Fiyatı
+                                            Toptan Satış
                                             <span className="inline-flex flex-col">
                                                 <button type="button" onClick={(e) => { e.stopPropagation(); handleSort('sellPrice', 'asc'); }} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Düşükten yükseğe"><ArrowUp className="w-3 h-3" /></button>
                                                 <button type="button" onClick={(e) => { e.stopPropagation(); handleSort('sellPrice', 'desc'); }} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Yüksekten düşüğe"><ArrowDown className="w-3 h-3" /></button>
@@ -675,7 +690,7 @@ export default function ProductsPage() {
                                         />
                                     </div>
                                     <div className="space-y-2">
-                                        <label className="text-sm font-medium">Satış Fiyatı</label>
+                                        <label className="text-sm font-medium">Toptan Satış Fiyatı</label>
                                         <Input
                                             type="number"
                                             value={editingItem.sellPrice}
