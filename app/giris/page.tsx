@@ -13,7 +13,7 @@ import * as dbActions from '@/lib/actions';
 
 export default function EntryPage() {
     const [barcode, setBarcode] = useState('');
-    const [rapidMode, setRapidMode] = useState(true);
+    const [rapidMode, setRapidMode] = useState(false);
     const [isNewItem, setIsNewItem] = useState(false);
     const [foundItem, setFoundItem] = useState<any>(null);
     const [manualEntry, setManualEntry] = useState(false);

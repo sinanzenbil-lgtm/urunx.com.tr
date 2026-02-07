@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useStockStore } from '@/lib/store';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { StockItem } from '@/types';
-import { Package, Scan, Search, Edit, X, PlusCircle, MinusCircle, Trash2, Download } from 'lucide-react';
+import { Package, Scan, Search, Edit, X, PlusCircle, MinusCircle, Trash2, Download, ArrowUp, ArrowDown } from 'lucide-react';
 import * as dbActions from '@/lib/actions';
 import { cn } from '@/lib/utils';
 import * as XLSX from 'xlsx';
@@ -30,52 +30,115 @@ export default function ProductsPage() {
     const [transactionsItem, setTransactionsItem] = useState<StockItem | null>(null);
     const [imageUrlInput, setImageUrlInput] = useState('');
     const [selectedBrand, setSelectedBrand] = useState<string>('');
+    type SortKey = 'name' | 'brand' | 'stockCode' | 'quantity' | 'buyPrice' | 'sellPrice';
+    const [sortBy, setSortBy] = useState<SortKey | null>(null);
+    const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
     // Get unique brands from all items
     const uniqueBrands = Array.from(new Set(items.map(item => item.brand).filter(Boolean))).sort();
 
     const filteredItems = items.filter((item) => {
-        const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            item.barcode.includes(searchQuery) ||
-            item.stockCode?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            item.brand?.toLowerCase().includes(searchQuery.toLowerCase());
-
         const matchesBrand = !selectedBrand || item.brand === selectedBrand;
-
+        const q = searchQuery.trim().toLowerCase();
+        if (!q) return matchesBrand;
+        const matchesSearch = (item.name || '').toLowerCase().includes(q) ||
+            (item.barcode || '').toLowerCase().includes(q) ||
+            (item.stockCode || '').toLowerCase().includes(q) ||
+            (item.brand || '').toLowerCase().includes(q);
         return matchesSearch && matchesBrand;
     });
 
+    const sortedItems = useMemo(() => {
+        if (!sortBy) return filteredItems;
+        return [...filteredItems].sort((a, b) => {
+            let aVal: string | number = '';
+            let bVal: string | number = '';
+            switch (sortBy) {
+                case 'name': aVal = (a.name || '').toLowerCase(); bVal = (b.name || '').toLowerCase(); break;
+                case 'brand': aVal = (a.brand || '').toLowerCase(); bVal = (b.brand || '').toLowerCase(); break;
+                case 'stockCode': aVal = (a.stockCode || '').toLowerCase(); bVal = (b.stockCode || '').toLowerCase(); break;
+                case 'quantity': aVal = Number(a.quantity) ?? 0; bVal = Number(b.quantity) ?? 0; break;
+                case 'buyPrice': aVal = Number(a.buyPrice) ?? 0; bVal = Number(b.buyPrice) ?? 0; break;
+                case 'sellPrice': aVal = Number(a.sellPrice) ?? 0; bVal = Number(b.sellPrice) ?? 0; break;
+                default: return 0;
+            }
+            if (typeof aVal === 'string' && typeof bVal === 'string') {
+                const cmp = aVal.localeCompare(bVal, 'tr');
+                return sortDir === 'asc' ? cmp : -cmp;
+            }
+            const cmp = (aVal as number) - (bVal as number);
+            return sortDir === 'asc' ? cmp : -cmp;
+        });
+    }, [filteredItems, sortBy, sortDir]);
+
+    const handleSort = (key: SortKey, dir: 'asc' | 'desc') => {
+        setSortBy(key);
+        setSortDir(dir);
+    };
+
     const handleExportExcel = () => {
-        if (filteredItems.length === 0) {
+        if (sortedItems.length === 0) {
             toast.error('İndirilecek ürün bulunamadı');
             return;
         }
 
-        const headers = ['UrunAdi', 'Barkod', 'StokKodu', 'Marka', 'AlisFiyati', 'SatisFiyati', 'StokAdedi', 'KDV', 'ResimURL'];
-        const rows = filteredItems.map((item) => [
-            item.name || '',
-            item.barcode || '',
-            item.stockCode || '',
-            item.brand || '',
-            Number(item.buyPrice) || 0,
-            Number(item.sellPrice) || 0,
-            Number(item.quantity) || 0,
-            Number(item.vatRate) || 0,
-            item.image || '',
-        ]);
+        const toastId = toast.loading('İndiriliyor...');
 
-        const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'Urunler');
-        XLSX.writeFile(workbook, 'Urunx_Urun_Listesi.xlsx');
-        toast.success(`Excel indirildi (${filteredItems.length} ürün)`);
+        const runExport = () => {
+            try {
+                const headers = ['UrunAdi', 'Barkod', 'StokKodu', 'Marka', 'AlisFiyati', 'SatisFiyati', 'StokAdedi', 'KDV'];
+                const rows = sortedItems.map((item) => [
+                    String(item.name ?? ''),
+                    String(item.barcode ?? ''),
+                    String(item.stockCode ?? ''),
+                    String(item.brand ?? ''),
+                    Number(item.buyPrice) || 0,
+                    Number(item.sellPrice) || 0,
+                    Number(item.quantity) || 0,
+                    Number(item.vatRate) || 0,
+                ]);
+
+                const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, 'Urunler');
+
+                let done = false;
+                try {
+                    XLSX.writeFile(workbook, 'Urunx_Urun_Listesi.xlsx');
+                    done = true;
+                } catch (_) {
+                    try {
+                        const wbOut = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+                        const blob = new Blob([wbOut], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'Urunx_Urun_Listesi.xlsx';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        done = true;
+                    } catch (_2) {
+                        // both methods failed
+                    }
+                }
+                if (done) toast.success(`Excel indirildi (${sortedItems.length} ürün)`, { id: toastId });
+                else toast.error('Excel indirilirken bir hata oluştu', { id: toastId });
+            } catch (err) {
+                console.error(err);
+                toast.error('Excel indirilirken bir hata oluştu', { id: toastId });
+            }
+        };
+
+        setTimeout(runExport, 100);
     };
 
     const toggleSelectAll = () => {
-        if (selectedIds.length === filteredItems.length) {
+        if (selectedIds.length === sortedItems.length) {
             setSelectedIds([]);
         } else {
-            setSelectedIds(filteredItems.map(item => item.id));
+            setSelectedIds(sortedItems.map(item => item.id));
         }
     };
 
@@ -289,32 +352,80 @@ export default function ProductsPage() {
                                     <th className="px-3 py-3 w-8">
                                         <input
                                             type="checkbox"
-                                            checked={selectedIds.length > 0 && selectedIds.length === filteredItems.length}
+                                            checked={selectedIds.length > 0 && selectedIds.length === sortedItems.length}
                                             onChange={toggleSelectAll}
                                             className="w-4 h-4 accent-primary rounded"
                                         />
                                     </th>
                                     <th className="px-4 py-3 w-[96px]">Görsel</th>
-                                    <th className="px-4 py-3">Marka</th>
-                                    <th className="px-4 py-3">Ürün Bilgisi</th>
-                                    <th className="px-4 py-3">Stok Kodu</th>
+                                    <th className="px-4 py-3">
+                                        <div className="flex items-center gap-1">
+                                            Marka
+                                            <span className="inline-flex flex-col">
+                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleSort('brand', 'asc'); }} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="A-Z"><ArrowUp className="w-3 h-3" /></button>
+                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleSort('brand', 'desc'); }} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Z-A"><ArrowDown className="w-3 h-3" /></button>
+                                            </span>
+                                        </div>
+                                    </th>
+                                    <th className="px-4 py-3">
+                                        <div className="flex items-center gap-1">
+                                            Ürün Bilgisi
+                                            <span className="inline-flex flex-col">
+                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleSort('name', 'asc'); }} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="A-Z"><ArrowUp className="w-3 h-3" /></button>
+                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleSort('name', 'desc'); }} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Z-A"><ArrowDown className="w-3 h-3" /></button>
+                                            </span>
+                                        </div>
+                                    </th>
+                                    <th className="px-4 py-3">
+                                        <div className="flex items-center gap-1">
+                                            Stok Kodu
+                                            <span className="inline-flex flex-col">
+                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleSort('stockCode', 'asc'); }} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="A-Z"><ArrowUp className="w-3 h-3" /></button>
+                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleSort('stockCode', 'desc'); }} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Z-A"><ArrowDown className="w-3 h-3" /></button>
+                                            </span>
+                                        </div>
+                                    </th>
                                     <th className="px-4 py-3">Barkod</th>
-                                    <th className="px-4 py-3 text-center">Stok</th>
+                                    <th className="px-4 py-3 text-center">
+                                        <div className="flex items-center justify-center gap-1">
+                                            Stok
+                                            <span className="inline-flex flex-col">
+                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleSort('quantity', 'asc'); }} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Azdan çoğa"><ArrowUp className="w-3 h-3" /></button>
+                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleSort('quantity', 'desc'); }} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Çoktan aza"><ArrowDown className="w-3 h-3" /></button>
+                                            </span>
+                                        </div>
+                                    </th>
                                     <th className="px-4 py-3 text-right">KDV</th>
-                                    <th className="px-4 py-3 text-right">Alış Fiyatı</th>
-                                    <th className="px-4 py-3 text-right">Satış Fiyatı</th>
+                                    <th className="px-4 py-3 text-right">
+                                        <div className="flex items-center justify-end gap-1">
+                                            Alış Fiyatı
+                                            <span className="inline-flex flex-col">
+                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleSort('buyPrice', 'asc'); }} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Düşükten yükseğe"><ArrowUp className="w-3 h-3" /></button>
+                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleSort('buyPrice', 'desc'); }} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Yüksekten düşüğe"><ArrowDown className="w-3 h-3" /></button>
+                                            </span>
+                                        </div>
+                                    </th>
+                                    <th className="px-4 py-3 text-right">
+                                        <div className="flex items-center justify-end gap-1">
+                                            Satış Fiyatı
+                                            <span className="inline-flex flex-col">
+                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleSort('sellPrice', 'asc'); }} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Düşükten yükseğe"><ArrowUp className="w-3 h-3" /></button>
+                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleSort('sellPrice', 'desc'); }} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Yüksekten düşüğe"><ArrowDown className="w-3 h-3" /></button>
+                                            </span>
+                                        </div>
+                                    </th>
                                     <th className="px-4 py-3 text-right">İşlemler</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-800">
-                                {filteredItems.length === 0 ? (
+                                {sortedItems.length === 0 ? (
                                     <tr>
                                         <td colSpan={10} className="px-6 py-10 text-center text-zinc-500">
                                             {items.length === 0 ? "Henüz ürün eklenmemiş." : "Aranan kriterlere uygun ürün bulunamadı."}
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredItems.map((item) => (
+                                    sortedItems.map((item) => (
                                         <tr key={item.id} className={cn(
                                             "hover:bg-zinc-900/50 transition-colors group cursor-pointer",
                                             selectedIds.includes(item.id) && "bg-primary/5"
