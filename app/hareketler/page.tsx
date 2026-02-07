@@ -10,6 +10,7 @@ import { Search, ArrowDownCircle, ArrowUpCircle, Trash2, Package } from 'lucide-
 import { useState } from 'react';
 import * as dbActions from '@/lib/actions';
 import { cn } from '@/lib/utils';
+import { StockItem } from '@/types';
 
 export default function MovementsPage() {
     const items = useStockStore((state) => state.items);
@@ -31,9 +32,12 @@ export default function MovementsPage() {
             productName: item.name,
             barcode: item.barcode,
             image: item.image,
-            brand: item.brand
+            brand: item.brand,
+            itemId: item.id
         }))
     ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    const [transactionsItem, setTransactionsItem] = useState<StockItem | null>(null);
 
     const filteredTransactions = allTransactions.filter(t => {
         const matchesSearch =
@@ -178,12 +182,16 @@ export default function MovementsPage() {
                                     filteredTransactions.map((t) => (
                                         <tr
                                             key={t.id}
+                                            onClick={() => {
+                                                const item = items.find(i => i.id === (t as { itemId?: string }).itemId);
+                                                if (item) setTransactionsItem(item);
+                                            }}
                                             className={cn(
-                                                "hover:bg-zinc-900/50 transition-colors group",
+                                                "hover:bg-zinc-900/50 transition-colors group cursor-pointer",
                                                 selectedIds.includes(t.id) && "bg-primary/5"
                                             )}
                                         >
-                                            <td className="px-4 py-4">
+                                            <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
                                                 <input
                                                     type="checkbox"
                                                     checked={selectedIds.includes(t.id)}
@@ -234,6 +242,49 @@ export default function MovementsPage() {
                     </div>
                 </CardContent>
             </Card>
+
+            <Dialog open={!!transactionsItem} onOpenChange={(open) => !open && setTransactionsItem(null)}>
+                <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 p-6">
+                    {transactionsItem && (
+                        <>
+                            <DialogHeader>
+                                <DialogTitle>Stok Hareketleri</DialogTitle>
+                                <DialogDescription>
+                                    {transactionsItem.name} için son hareketler
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="mt-2 space-y-3 max-h-[60vh] overflow-auto">
+                                {transactionsItem.transactions.length === 0 ? (
+                                    <p className="text-sm text-zinc-500">Bu ürün için hareket bulunamadı.</p>
+                                ) : (
+                                    transactionsItem.transactions
+                                        .slice()
+                                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                                        .map((t) => (
+                                            <div key={t.id} className="flex items-center justify-between border-b border-white/5 pb-2 last:border-0">
+                                                <div>
+                                                    <p className="text-sm font-medium text-white">
+                                                        {t.type === 'IN' ? 'Giriş' : 'Çıkış'} • {t.quantity} adet
+                                                    </p>
+                                                    <p className="text-xs text-zinc-500">{new Date(t.date).toLocaleString('tr-TR')}</p>
+                                                    {t.channel && (
+                                                        <p className="text-xs text-zinc-500">{t.channel}</p>
+                                                    )}
+                                                </div>
+                                                <span className={cn(
+                                                    "text-xs font-bold px-2 py-1 rounded-full",
+                                                    t.type === 'IN' ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"
+                                                )}>
+                                                    {t.type === 'IN' ? '+' : '-'}{t.quantity}
+                                                </span>
+                                            </div>
+                                        ))
+                                )}
+                            </div>
+                        </>
+                    )}
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
                 <DialogContent className="sm:max-w-md bg-zinc-950 border-zinc-800 p-6">

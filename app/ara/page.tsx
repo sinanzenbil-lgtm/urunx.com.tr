@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useStockStore } from '@/lib/store';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Search, Edit, Trash2, X, Save } from 'lucide-react';
 import { toast } from 'sonner';
@@ -14,6 +15,7 @@ import * as dbActions from '@/lib/actions';
 export default function SearchPage() {
     const [query, setQuery] = useState('');
     const [editingItem, setEditingItem] = useState<StockItem | null>(null);
+    const [transactionsItem, setTransactionsItem] = useState<StockItem | null>(null);
 
     const searchItems = useStockStore((state) => state.searchItems);
     const updateItem = useStockStore((state) => state.updateItem);
@@ -64,11 +66,11 @@ export default function SearchPage() {
                     </div>
                 ) : (
                     results.map((item) => (
-                        <Card key={item.id} className="group hover:border-primary/50 transition-colors">
+                        <Card key={item.id} className="group hover:border-primary/50 transition-colors cursor-pointer" onClick={() => setTransactionsItem(item)}>
                             <CardHeader className="pb-2">
                                 <CardTitle className="flex justify-between items-start">
                                     <span className="truncate" title={item.name}>{item.name}</span>
-                                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
                                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingItem(item)}>
                                             <Edit size={16} />
                                         </Button>
@@ -100,6 +102,46 @@ export default function SearchPage() {
                     ))
                 )}
             </div>
+
+            <Dialog open={!!transactionsItem} onOpenChange={(open) => !open && setTransactionsItem(null)}>
+                <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 p-6">
+                    {transactionsItem && (
+                        <>
+                            <DialogHeader>
+                                <DialogTitle>Stok Hareketleri</DialogTitle>
+                                <DialogDescription>
+                                    {transactionsItem.name} için son hareketler
+                                </DialogDescription>
+                            </DialogHeader>
+                            <div className="mt-2 space-y-3 max-h-[60vh] overflow-auto">
+                                {transactionsItem.transactions.length === 0 ? (
+                                    <p className="text-sm text-zinc-500">Bu ürün için hareket bulunamadı.</p>
+                                ) : (
+                                    transactionsItem.transactions
+                                        .slice()
+                                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                                        .map((t) => (
+                                            <div key={t.id} className="flex items-center justify-between border-b border-white/5 pb-2 last:border-0">
+                                                <div>
+                                                    <p className="text-sm font-medium text-white">
+                                                        {t.type === 'IN' ? 'Giriş' : 'Çıkış'} • {t.quantity} adet
+                                                    </p>
+                                                    <p className="text-xs text-zinc-500">{new Date(t.date).toLocaleString('tr-TR')}</p>
+                                                    {t.channel && (
+                                                        <p className="text-xs text-zinc-500">{t.channel}</p>
+                                                    )}
+                                                </div>
+                                                <span className={`text-xs font-bold px-2 py-1 rounded-full ${t.type === 'IN' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                                                    {t.type === 'IN' ? '+' : '-'}{t.quantity}
+                                                </span>
+                                            </div>
+                                        ))
+                                )}
+                            </div>
+                        </>
+                    )}
+                </DialogContent>
+            </Dialog>
 
             {/* Edit Modal - portal ile body'e render, her zaman en üstte görünsün */}
             {editingItem && typeof document !== 'undefined' && createPortal(

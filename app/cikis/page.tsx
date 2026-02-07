@@ -54,11 +54,17 @@ export default function ExitPage() {
         inputRef.current?.focus();
     };
 
+    const getItemByBarcodeOrStockCode = (value: string): StockItem | undefined => {
+        const t = value.trim();
+        if (!t) return undefined;
+        return getItemByBarcode(t) || items.find(item => (item.stockCode || '').toLowerCase() === t.toLowerCase());
+    };
+
     const handleScan = (e: React.FormEvent) => {
         e.preventDefault();
         if (!barcode.trim()) return;
 
-        const existing = getItemByBarcode(barcode);
+        const existing = getItemByBarcodeOrStockCode(barcode);
 
         if (existing) {
             addToCart(existing);
@@ -169,18 +175,15 @@ export default function ExitPage() {
                                     const val = e.target.value;
                                     setBarcode(val);
 
-                                    // Auto-check for exact barcode match
+                                    // Otomatik ekleme: barkod veya stok kodu tam eşleşince sepete ekle
                                     if (val.trim()) {
-                                        const exactMatch = getItemByBarcode(val.trim());
+                                        const exactMatch = getItemByBarcodeOrStockCode(val.trim());
                                         if (exactMatch) {
                                             addToCart(exactMatch);
-                                            // addToCart clears barcode, but since this is in onChange, 
-                                            // React batching might need explicit clear here or rely on addToCart's state update.
-                                            // addToCart sets barcode to '', which is good.
                                         }
                                     }
                                 }}
-                                placeholder="Barkod okutun..."
+                                placeholder="Barkod veya stok kodu okutun / yapıştırın..."
                                 className="text-xl h-14 font-mono w-full"
                                 autoFocus
                             />

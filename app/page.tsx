@@ -253,7 +253,7 @@ export default function Home() {
           <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Toplam Satışlar</CardTitle>
-              <p className="text-xs text-zinc-500">Seçili tarih aralığında kanal bazlı alış/satış tutarları</p>
+              <p className="text-xs text-zinc-500">Seçili tarih aralığında kanal bazlı satılan malın alış maliyeti / satış tutarları</p>
             </div>
             <div className="flex items-center gap-2 bg-zinc-950/60 p-2 rounded-lg border border-white/5">
               <Input
@@ -276,7 +276,7 @@ export default function Home() {
               {(['Pazaryeri', 'Perakende', 'Toptan'] as const).map((channel) => (
                 <div key={channel} className="bg-zinc-900/50 border border-white/5 rounded-lg p-4">
                   <p className="text-xs text-zinc-500 uppercase tracking-wider">{channel} Satış</p>
-                  <p className="text-sm text-zinc-400 mt-2">Alış Tutarı</p>
+                  <p className="text-sm text-zinc-400 mt-2">Satılan Malın Alış Maliyeti</p>
                   <p className="text-lg font-bold text-emerald-400">
                     {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(salesSummary[channel].buyTotal)}
                   </p>
@@ -290,10 +290,10 @@ export default function Home() {
             <div className="mt-4 bg-zinc-900/70 border border-white/10 rounded-lg p-4 flex items-center justify-between">
               <div>
                 <p className="text-xs text-zinc-400 uppercase tracking-wider">Toplam Satış (3 Kanal)</p>
-                <p className="text-xs text-zinc-500">Alış + Satış toplamları</p>
+                <p className="text-xs text-zinc-500">Satılan malın alış maliyeti + Satış toplamları</p>
               </div>
               <div className="text-right">
-                <p className="text-sm text-zinc-400">Alış Toplamı</p>
+                <p className="text-sm text-zinc-400">Satılan Malın Alış Maliyeti Toplamı</p>
                 <p className="text-xl font-bold text-emerald-400">
                   {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(totalSalesBuy)}
                 </p>
