@@ -4,6 +4,31 @@ import { sql } from './db';
 
 export async function setupDatabase() {
     try {
+        // Create customers (cariler) table
+        await sql`
+      CREATE TABLE IF NOT EXISTS customers (
+        id TEXT PRIMARY KEY,
+        customer_code TEXT,
+        name TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+        await sql`CREATE UNIQUE INDEX IF NOT EXISTS customers_customer_code_key ON customers(customer_code) WHERE customer_code IS NOT NULL;`;
+
+        // Customer payments (tahsilat) table
+        await sql`
+      CREATE TABLE IF NOT EXISTS customer_payments (
+        id TEXT PRIMARY KEY,
+        customer_id TEXT REFERENCES customers(id) ON DELETE CASCADE,
+        date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        amount DECIMAL NOT NULL DEFAULT 0,
+        method TEXT NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+        await sql`CREATE INDEX IF NOT EXISTS customer_payments_customer_id_idx ON customer_payments(customer_id);`;
+
         // Create items table
         await sql`
       CREATE TABLE IF NOT EXISTS items (
@@ -32,13 +57,28 @@ export async function setupDatabase() {
       CREATE TABLE IF NOT EXISTS transactions (
         id TEXT PRIMARY KEY,
         item_id TEXT REFERENCES items(id) ON DELETE CASCADE,
+        customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
         date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         type TEXT NOT NULL,
+        kind TEXT DEFAULT 'NORMAL',
         quantity INTEGER NOT NULL,
         channel TEXT,
+        unit_price DECIMAL DEFAULT 0,
+        total_price DECIMAL DEFAULT 0,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `;
+
+        // Backward-compatible schema upgrades
+        await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS unit_price DECIMAL DEFAULT 0;`;
+        await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS total_price DECIMAL DEFAULT 0;`;
+        await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS customer_id TEXT;`;
+        await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS kind TEXT DEFAULT 'NORMAL';`;
+        await sql`DO $$ BEGIN
+          ALTER TABLE transactions
+          ADD CONSTRAINT transactions_customer_id_fkey
+          FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL;
+        EXCEPTION WHEN duplicate_object THEN NULL; END $$;`;
 
         console.log('Database tables created successfully');
         return { success: true };

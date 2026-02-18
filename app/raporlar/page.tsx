@@ -55,7 +55,9 @@ export default function ReportsPage() {
             item.transactions.forEach(t => {
                 const tDate = new Date(t.date);
                 if (t.type === 'OUT' && tDate >= start && tDate <= end) {
-                    revenue += t.quantity * (Number(item.sellPrice) || 0);
+                    const unit = Number(t.unitPrice) || (Number(item.sellPrice) || 0);
+                    const total = Number(t.totalPrice) || (unit * (Number(t.quantity) || 0));
+                    revenue += total;
                     qty += t.quantity;
                 }
             });
@@ -137,7 +139,9 @@ export default function ReportsPage() {
                         stats[item.id] = { name: item.name, qty: 0, revenue: 0, image: item.image };
                     }
                     stats[item.id].qty += t.quantity;
-                    stats[item.id].revenue += t.quantity * (Number(item.sellPrice) || 0);
+                    const unit = Number(t.unitPrice) || (Number(item.sellPrice) || 0);
+                    const total = Number(t.totalPrice) || (unit * (Number(t.quantity) || 0));
+                    stats[item.id].revenue += total;
                 }
             });
         });
@@ -171,7 +175,13 @@ export default function ReportsPage() {
             const startQty = currentQty - inQty + outQty;
             const avgStock = Math.max(1, (startQty + currentQty) / 2);
             const turnoverRate = outQty / avgStock;
-            const revenue = outQty * (Number(item.sellPrice) || 0);
+            const revenue = item.transactions.reduce((acc, t) => {
+                const tDate = new Date(t.date);
+                if (t.type !== 'OUT' || tDate < start || tDate > end) return acc;
+                const unit = Number(t.unitPrice) || (Number(item.sellPrice) || 0);
+                const total = Number(t.totalPrice) || (unit * (Number(t.quantity) || 0));
+                return acc + total;
+            }, 0);
 
             return {
                 id: item.id,

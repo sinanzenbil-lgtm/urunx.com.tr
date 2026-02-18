@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 export default function Home() {
   const items = useStockStore((state) => state.items);
+  const dbSyncStatus = useStockStore((state) => state.dbSyncStatus);
   const [mounted, setMounted] = useState(false);
   const yearStart = `${new Date().getFullYear()}-01-01`;
   const today = new Date().toISOString().split('T')[0];
@@ -81,7 +82,9 @@ export default function Home() {
           const channel = (t.channel as keyof typeof totals) || 'Perakende';
           if (channel in totals) {
             totals[channel].buyTotal += t.quantity * (Number(item.buyPrice) || 0);
-            totals[channel].sellTotal += t.quantity * (Number(item.sellPrice) || 0);
+            const unit = Number(t.unitPrice) || Number(item.sellPrice) || 0;
+            const total = Number(t.totalPrice) || (unit * (Number(t.quantity) || 0));
+            totals[channel].sellTotal += total;
           }
         }
       });
@@ -110,7 +113,33 @@ export default function Home() {
   const totalSalesSell =
     salesSummary.Pazaryeri.sellTotal + salesSummary.Perakende.sellTotal + salesSummary.Toptan.sellTotal;
 
-  if (!mounted) return null;
+  // Avoid showing stale localStorage numbers before DB sync finishes.
+  if (!mounted || dbSyncStatus !== 'synced') {
+    return (
+      <div className="space-y-6 animate-enter">
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold tracking-tight">Özet Paneli</h1>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <div className="h-4 w-32 bg-zinc-800/70 rounded animate-pulse" />
+                <div className="h-4 w-4 bg-zinc-800/70 rounded animate-pulse" />
+              </CardHeader>
+              <CardContent>
+                <div className="h-8 w-24 bg-zinc-800/70 rounded animate-pulse" />
+                <div className="mt-2 h-3 w-40 bg-zinc-800/50 rounded animate-pulse" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+        <p className="text-sm text-zinc-500">
+          Veriler eşitleniyor{dbSyncStatus === 'error' ? ' (hata oluştu)' : '...'}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-enter">

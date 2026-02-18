@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { StockStore, StockItem, Transaction } from '@/types';
-import { v4 as uuidv4 } from 'uuid';
+import { StockStore } from '@/types';
 
 export const useStockStore = create<StockStore>()(
     persist(
@@ -9,6 +8,7 @@ export const useStockStore = create<StockStore>()(
             items: [],
             user: null,
             isAuthenticated: false,
+            dbSyncStatus: 'idle',
             addItem: (item) => set((state) => ({ items: [...state.items, item] })),
             updateItem: (id, updates) =>
                 set((state) => ({
@@ -40,18 +40,20 @@ export const useStockStore = create<StockStore>()(
                 return get().items.find((item) => item.barcode === barcode);
             },
             searchItems: (query) => {
-                const lowerQuery = query.toLowerCase();
+                const q = (query || '').trim().toLocaleLowerCase('tr-TR');
+                if (!q) return get().items;
                 return get().items.filter(
                     (item) =>
-                        item.name.toLowerCase().includes(lowerQuery) ||
-                        item.barcode.includes(lowerQuery) ||
-                        item.brand?.toLowerCase().includes(lowerQuery) ||
-                        item.stockCode?.toLowerCase().includes(lowerQuery)
+                        (item.name || '').toLocaleLowerCase('tr-TR').includes(q) ||
+                        (item.barcode || '').toLocaleLowerCase('tr-TR').includes(q) ||
+                        (item.brand || '').toLocaleLowerCase('tr-TR').includes(q) ||
+                        (item.stockCode || '').toLocaleLowerCase('tr-TR').includes(q)
                 );
             },
             login: (user) => set({ user, isAuthenticated: true }),
             logout: () => set({ user: null, isAuthenticated: false }),
             setItems: (items) => set({ items }),
+            setDbSyncStatus: (dbSyncStatus) => set({ dbSyncStatus }),
             removeTransactions: (ids) => set((state) => ({
                 items: state.items.map(item => {
                     const txsToRemove = item.transactions.filter(t => ids.includes(t.id));
@@ -74,6 +76,12 @@ export const useStockStore = create<StockStore>()(
         {
             name: 'urunx-storage', // Rebranding storage name
             storage: createJSONStorage(() => localStorage),
+            // Important: do NOT persist transient sync status, otherwise UI may show stale local
+            // values as "synced" on refresh before DB sync completes.
+            partialize: (state) => ({
+                user: state.user,
+                isAuthenticated: state.isAuthenticated,
+            }),
         }
     )
 );

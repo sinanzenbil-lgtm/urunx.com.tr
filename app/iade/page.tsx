@@ -7,23 +7,36 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription as DDesc, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Scan, Search, Package, Save, Trash2, PlusCircle, Users } from 'lucide-react';
-import { v4 as uuidv4 } from 'uuid';
+import { RotateCcw, Scan, Search, X, Package, Save, Trash2, Users, PlusCircle, Store, User, Building2 } from 'lucide-react';
 import { Customer, StockItem } from '@/types';
 import * as dbActions from '@/lib/actions';
+import { v4 as uuidv4 } from 'uuid';
 
-export default function EntryPage() {
-  const storeItems = useStockStore((s) => s.items);
+type ReturnChannel = 'Pazaryeri' | 'Perakende' | 'Toptan';
+
+const currency = (value: number) =>
+  new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(value) || 0);
+
+interface CartItem {
+  id: string;
+  stockItem: StockItem;
+  quantity: number;
+  unitReturnPrice: string; // optional for Pazaryeri
+}
+
+export default function IadePage() {
+  const items = useStockStore((s) => s.items);
   const getItemByBarcode = useStockStore((s) => s.getItemByBarcode);
   const addTransaction = useStockStore((s) => s.addTransaction);
-  const updateItem = useStockStore((s) => s.updateItem);
 
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   const [newCustomerCode, setNewCustomerCode] = useState('');
   const [newCustomerName, setNewCustomerName] = useState('');
   const [newCustomerSaving, setNewCustomerSaving] = useState(false);
+
+  const [channel, setChannel] = useState<ReturnChannel>('Pazaryeri');
 
   const [barcodeOrStockCode, setBarcodeOrStockCode] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -31,16 +44,6 @@ export default function EntryPage() {
   const [activeCartId, setActiveCartId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  interface CartItem {
-    id: string;
-    stockItem: StockItem;
-    quantity: number;
-    unitBuyPrice: string;
-  }
-
-  const currency = (value: number) =>
-    new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(value) || 0);
 
   const toNumber = (raw: string) => {
     const normalized = (raw || '').replace(',', '.').trim();
@@ -68,7 +71,7 @@ export default function EntryPage() {
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLocaleLowerCase('tr-TR');
     if (!q) return [];
-    return storeItems
+    return items
       .filter((item) => {
         const name = (item.name || '').toLocaleLowerCase('tr-TR');
         const barcode = (item.barcode || '').toLocaleLowerCase('tr-TR');
@@ -77,12 +80,12 @@ export default function EntryPage() {
         return name.includes(q) || barcode.includes(q) || stockCode.includes(q) || brand.includes(q);
       })
       .slice(0, 40);
-  }, [storeItems, searchQuery]);
+  }, [items, searchQuery]);
 
   const getItemByBarcodeOrStockCode = (value: string): StockItem | undefined => {
     const t = value.trim();
     if (!t) return undefined;
-    return getItemByBarcode(t) || storeItems.find((item) => (item.stockCode || '').toLowerCase() === t.toLowerCase());
+    return getItemByBarcode(t) || items.find((item) => (item.stockCode || '').toLowerCase() === t.toLowerCase());
   };
 
   const focusScan = () => setTimeout(() => inputRef.current?.focus(), 0);
@@ -104,7 +107,7 @@ export default function EntryPage() {
         id: uuidv4(),
         stockItem: item,
         quantity: 1,
-        unitBuyPrice: String(Number(item.buyPrice) || ''),
+        unitReturnPrice: '',
       };
       setActiveCartId(newRow.id);
       return [newRow, ...prev];
@@ -143,8 +146,8 @@ export default function EntryPage() {
 
   const cartTotals = useMemo(() => {
     const totalQty = cart.reduce((acc, c) => acc + (Number(c.quantity) || 0), 0);
-    const totalCost = cart.reduce((acc, c) => acc + toNumber(c.unitBuyPrice) * (Number(c.quantity) || 0), 0);
-    return { totalQty, totalCost };
+    const totalAmount = cart.reduce((acc, c) => acc + toNumber(c.unitReturnPrice) * (Number(c.quantity) || 0), 0);
+    return { totalQty, totalAmount };
   }, [cart]);
 
   const submitNewCustomer = async () => {
@@ -176,11 +179,12 @@ export default function EntryPage() {
     }
   };
 
-  const saveEntry = async () => {
+  const saveReturn = async () => {
     if (saving) return;
     if (cart.length === 0) return;
-    if (!selectedCustomerId) {
-      toast.error('Cari seçiniz');
+
+    if (channel === 'Toptan' && !selectedCustomerId) {
+      toast.error('Toptan iade için cari seçiniz');
       return;
     }
 
@@ -189,36 +193,32 @@ export default function EntryPage() {
         toast.error('Sepette geçersiz adet var');
         return;
       }
-      if (toNumber(c.unitBuyPrice) <= 0) {
-        toast.error(`Alış fiyatı giriniz: ${c.stockItem.name}`);
+      if (channel !== 'Pazaryeri' && toNumber(c.unitReturnPrice) <= 0) {
+        toast.error(`İade fiyatı giriniz: ${c.stockItem.name}`);
         return;
       }
     }
 
     setSaving(true);
-    const toastId = toast.loading('Stok girişi kaydediliyor...');
+    const toastId = toast.loading('İade kaydediliyor...');
     const now = new Date().toISOString();
 
     try {
       const results = await Promise.all(
-        cart.map(async (c) => {
-          const unitBuyPrice = toNumber(c.unitBuyPrice);
-          const totalPrice = unitBuyPrice * (Number(c.quantity) || 0);
-
-          // Update product buy price (store + DB) to latest entered value
-          updateItem(c.stockItem.id, { buyPrice: unitBuyPrice });
-          await dbActions.updateItem(c.stockItem.id, { buyPrice: unitBuyPrice });
-
+        cart.map((c) => {
+          const unit = channel === 'Pazaryeri' ? 0 : toNumber(c.unitReturnPrice);
+          const total = unit * (Number(c.quantity) || 0);
           const tx = {
             id: uuidv4(),
             date: now,
             type: 'IN' as const,
+            kind: 'RETURN' as const,
             quantity: c.quantity,
-            customerId: selectedCustomerId,
-            unitPrice: unitBuyPrice,
-            totalPrice,
+            channel,
+            unitPrice: unit,
+            totalPrice: total,
+            customerId: channel === 'Toptan' ? selectedCustomerId : undefined,
           };
-
           addTransaction(c.stockItem.id, tx);
           return dbActions.addTransaction(c.stockItem.id, tx);
         })
@@ -227,12 +227,12 @@ export default function EntryPage() {
       const anyFail = results.some((r) => !r.success);
       if (anyFail) throw new Error('DB sync failed');
 
-      toast.success('Stok girişi kaydedildi', { id: toastId });
+      toast.success('İade kaydedildi', { id: toastId });
       setCart([]);
       setActiveCartId(null);
       focusScan();
     } catch (err) {
-      toast.error('Stok girişi kaydedilirken hata oluştu', { id: toastId });
+      toast.error('İade kaydedilirken hata oluştu', { id: toastId });
       // eslint-disable-next-line no-console
       console.error(err);
     } finally {
@@ -244,24 +244,27 @@ export default function EntryPage() {
     <div className="max-w-6xl mx-auto space-y-6 animate-enter">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-green-500">Stok Giriş</h1>
-          <p className="text-zinc-500">Barkod okutun / arayın, sepete ekleyin ve stok girişini kaydedin</p>
+          <h1 className="text-3xl font-bold tracking-tight text-purple-400 flex items-center gap-2">
+            <RotateCcw className="w-7 h-7" />
+            İade
+          </h1>
+          <p className="text-zinc-500">İade gelen ürünleri seçin ve stoğa geri alın</p>
         </div>
         <div className="hidden sm:flex items-center gap-4 text-zinc-400">
           <div className="text-right">
             <div className="text-xs text-zinc-500">Sepet</div>
             <div className="text-sm font-bold text-white">
-              {cart.length} çeşit • {cartTotals.totalQty} adet • {currency(cartTotals.totalCost)}
+              {cart.length} çeşit • {cartTotals.totalQty} adet • {currency(cartTotals.totalAmount)}
             </div>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="border-green-900/30">
+        <Card className="border-purple-900/30">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
-              <Scan className="w-5 h-5 text-green-500" />
+              <Scan className="w-5 h-5 text-purple-400" />
               Barkod / Stok Kodu
             </CardTitle>
             <CardDescription>Okutunca sepete eklenir</CardDescription>
@@ -281,7 +284,7 @@ export default function EntryPage() {
                 className="text-xl h-14 font-mono w-full"
                 autoFocus
               />
-              <Button type="submit" size="lg" className="h-14 px-6 bg-green-600 hover:bg-green-700">
+              <Button type="submit" size="lg" className="h-14 px-6 bg-purple-600 hover:bg-purple-700">
                 <Scan className="mr-2" /> Sepete Ekle
               </Button>
             </form>
@@ -301,7 +304,7 @@ export default function EntryPage() {
                     className="absolute right-3 top-3 text-zinc-500 hover:text-white"
                     type="button"
                   >
-                    <span className="sr-only">Temizle</span>
+                    <X size={18} />
                   </button>
                 )}
               </div>
@@ -351,7 +354,7 @@ export default function EntryPage() {
                 <div className="space-y-2">
                   {cart.map((c) => {
                     const isActive = c.id === activeCartId;
-                    const unit = toNumber(c.unitBuyPrice);
+                    const unit = toNumber(c.unitReturnPrice);
                     const lineTotal = unit * (Number(c.quantity) || 0);
                     return (
                       <button
@@ -359,7 +362,7 @@ export default function EntryPage() {
                         key={c.id}
                         onClick={() => setActiveCartId(c.id)}
                         className={`w-full text-left p-3 rounded-lg border transition-colors flex items-center gap-3 ${
-                          isActive ? 'border-green-500/40 bg-green-500/5' : 'border-zinc-800 bg-zinc-900/30 hover:bg-zinc-900/50'
+                          isActive ? 'border-purple-500/40 bg-purple-500/5' : 'border-zinc-800 bg-zinc-900/30 hover:bg-zinc-900/50'
                         }`}
                       >
                         <div className="w-10 h-10 bg-zinc-950 rounded-md border border-zinc-800 flex items-center justify-center overflow-hidden flex-shrink-0">
@@ -374,11 +377,11 @@ export default function EntryPage() {
                           <div className="text-xs text-zinc-500 flex gap-2">
                             <span className="font-mono">{c.quantity} adet</span>
                             <span>•</span>
-                            <span>{currency(unit)}</span>
+                            <span>{channel === 'Pazaryeri' ? 'Fiyat yok' : currency(unit)}</span>
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="text-sm font-bold text-white">{currency(lineTotal)}</div>
+                          <div className="text-sm font-bold text-white">{channel === 'Pazaryeri' ? '-' : currency(lineTotal)}</div>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -400,38 +403,76 @@ export default function EntryPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-green-900/30">
+        <Card className="border-purple-900/30">
           <CardHeader className="pb-2">
-            <CardTitle>Stok Giriş Detayı</CardTitle>
-            <CardDescription>Cari seçin, adet ve alış fiyatını girin</CardDescription>
+            <CardTitle>İade Detayı</CardTitle>
+            <CardDescription>İade tipi, cari ve fiyatı seçin</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Cari Seç</label>
+              <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">İade Tipi</label>
+              <div className="flex bg-zinc-950 rounded-lg p-1 border border-zinc-800 h-14 items-center justify-center gap-1">
                 <button
                   type="button"
-                  onClick={() => setAddCustomerOpen(true)}
-                  className="text-xs text-sky-400 hover:text-sky-300 inline-flex items-center gap-1"
+                  onClick={() => { setChannel('Pazaryeri'); setSelectedCustomerId(''); }}
+                  className={`flex-1 h-12 rounded-md transition-all flex items-center justify-center gap-2 ${
+                    channel === 'Pazaryeri' ? 'bg-indigo-600 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
                 >
-                  <PlusCircle className="w-4 h-4" />
-                  Yeni Cari
+                  <Store size={16} />
+                  <span className="font-semibold">Pazaryeri</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setChannel('Perakende'); setSelectedCustomerId(''); }}
+                  className={`flex-1 h-12 rounded-md transition-all flex items-center justify-center gap-2 ${
+                    channel === 'Perakende' ? 'bg-emerald-600 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  <User size={16} />
+                  <span className="font-semibold">Perakende</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChannel('Toptan')}
+                  className={`flex-1 h-12 rounded-md transition-all flex items-center justify-center gap-2 ${
+                    channel === 'Toptan' ? 'bg-orange-600 text-white shadow-lg' : 'text-zinc-500 hover:text-zinc-300'
+                  }`}
+                >
+                  <Building2 size={16} />
+                  <span className="font-semibold">Toptan</span>
                 </button>
               </div>
-              <select
-                value={selectedCustomerId}
-                onChange={(e) => setSelectedCustomerId(e.target.value)}
-                className="w-full h-12 px-3 rounded-md bg-zinc-950 border border-zinc-800 text-white focus:border-primary/50 focus:outline-none"
-              >
-                <option value="">Cari seçiniz...</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {(c.customerCode ? `${c.customerCode} - ` : '') + c.name}
-                  </option>
-                ))}
-              </select>
-              {!selectedCustomerId && <div className="text-xs text-amber-300">Stok girişi kaydetmek için cari seçmelisiniz</div>}
             </div>
+
+            {channel === 'Toptan' && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Cari Seç</label>
+                  <button
+                    type="button"
+                    onClick={() => setAddCustomerOpen(true)}
+                    className="text-xs text-sky-400 hover:text-sky-300 inline-flex items-center gap-1"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    Yeni Cari
+                  </button>
+                </div>
+                <select
+                  value={selectedCustomerId}
+                  onChange={(e) => setSelectedCustomerId(e.target.value)}
+                  className="w-full h-12 px-3 rounded-md bg-zinc-950 border border-zinc-800 text-white focus:border-primary/50 focus:outline-none"
+                >
+                  <option value="">Cari seçiniz...</option>
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {(c.customerCode ? `${c.customerCode} - ` : '') + c.name}
+                    </option>
+                  ))}
+                </select>
+                {!selectedCustomerId && <div className="text-xs text-amber-300">Toptan iade kaydetmek için cari seçmelisiniz</div>}
+              </div>
+            )}
 
             {!activeCartItem ? (
               <div className="flex flex-col items-center justify-center py-16 text-zinc-600 border-2 border-dashed border-zinc-800 rounded-xl">
@@ -442,7 +483,7 @@ export default function EntryPage() {
             ) : (
               (() => {
                 const item = activeCartItem.stockItem;
-                const unit = toNumber(activeCartItem.unitBuyPrice);
+                const unit = toNumber(activeCartItem.unitReturnPrice);
                 const lineTotal = unit * (Number(activeCartItem.quantity) || 0);
                 return (
                   <div className="space-y-4">
@@ -470,7 +511,7 @@ export default function EntryPage() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Eklenecek Adet</label>
+                        <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">İade Adedi</label>
                         <Input
                           type="number"
                           min={1}
@@ -488,29 +529,33 @@ export default function EntryPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Gerçekleşen Alış Fiyatı (Birim)</label>
+                        <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">İade Fiyatı (Birim)</label>
                         <Input
                           type="number"
                           min={0}
                           step="0.01"
-                          value={activeCartItem.unitBuyPrice}
-                          onChange={(e) => updateCartItem(activeCartItem.id, { unitBuyPrice: e.target.value })}
-                          className="text-center font-bold text-2xl h-14 bg-zinc-950 border-zinc-800"
+                          value={channel === 'Pazaryeri' ? '' : activeCartItem.unitReturnPrice}
+                          onChange={(e) => updateCartItem(activeCartItem.id, { unitReturnPrice: e.target.value })}
+                          disabled={channel === 'Pazaryeri'}
+                          placeholder={channel === 'Pazaryeri' ? 'Pazaryeri iadede fiyat seçilmez' : 'Örn: 200'}
+                          className="text-center font-bold text-2xl h-14 bg-zinc-950 border-zinc-800 disabled:opacity-70"
                         />
-                        {toNumber(activeCartItem.unitBuyPrice) <= 0 && (
-                          <div className="text-xs text-amber-300">Alış fiyatı girilmeden kaydedilemez</div>
+                        {channel !== 'Pazaryeri' && toNumber(activeCartItem.unitReturnPrice) <= 0 && (
+                          <div className="text-xs text-amber-300">İade fiyatı girilmeden kaydedilemez</div>
                         )}
                       </div>
                     </div>
 
                     <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-3 flex items-center justify-between">
                       <div>
-                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Toplam Maliyet</div>
+                        <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">İade Tutarı</div>
                         <div className="text-xs text-zinc-500">
-                          {activeCartItem.quantity} × {currency(unit)}
+                          {activeCartItem.quantity} × {channel === 'Pazaryeri' ? '-' : currency(unit)}
                         </div>
                       </div>
-                      <div className="text-2xl font-black text-blue-300">{currency(lineTotal)}</div>
+                      <div className="text-2xl font-black text-blue-300">
+                        {channel === 'Pazaryeri' ? '-' : currency(lineTotal)}
+                      </div>
                     </div>
 
                     <div className="flex gap-2 pt-2">
@@ -527,12 +572,12 @@ export default function EntryPage() {
                       </Button>
                       <Button
                         type="button"
-                        className="flex-1 bg-green-600 hover:bg-green-700 text-white gap-2"
-                        onClick={saveEntry}
+                        className="flex-1 bg-purple-600 hover:bg-purple-700 text-white gap-2"
+                        onClick={saveReturn}
                         disabled={cart.length === 0 || saving}
                       >
                         <Save className="w-5 h-5" />
-                        {saving ? 'Kaydediliyor...' : `Kaydet (${currency(cartTotals.totalCost)})`}
+                        {saving ? 'Kaydediliyor...' : 'Kaydet'}
                       </Button>
                     </div>
                   </div>
@@ -552,11 +597,15 @@ export default function EntryPage() {
           <div className="space-y-4">
             <div className="space-y-2">
               <label className="text-sm font-medium text-zinc-300">Cari Kodu</label>
-              <Input value={newCustomerCode} onChange={(e) => setNewCustomerCode(e.target.value)} placeholder="Boş bırakılırsa otomatik atanır" />
+              <Input
+                value={newCustomerCode}
+                onChange={(e) => setNewCustomerCode(e.target.value)}
+                placeholder="Boş bırakılırsa otomatik atanır"
+              />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-zinc-300">Cari İsmi</label>
-              <Input value={newCustomerName} onChange={(e) => setNewCustomerName(e.target.value)} placeholder="Örn: Tedarikçi A.Ş." />
+              <Input value={newCustomerName} onChange={(e) => setNewCustomerName(e.target.value)} placeholder="Örn: ABC Ltd." />
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
@@ -573,3 +622,4 @@ export default function EntryPage() {
     </div>
   );
 }
+

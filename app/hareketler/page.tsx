@@ -12,6 +12,9 @@ import * as dbActions from '@/lib/actions';
 import { cn } from '@/lib/utils';
 import { StockItem } from '@/types';
 
+const currency = (value: number) =>
+    new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(value) || 0);
+
 export default function MovementsPage() {
     const items = useStockStore((state) => state.items);
     const removeStoreTransactions = useStockStore((state) => state.removeTransactions);
@@ -33,7 +36,8 @@ export default function MovementsPage() {
             barcode: item.barcode,
             image: item.image,
             brand: item.brand,
-            itemId: item.id
+            itemId: item.id,
+            itemSellPrice: Number(item.sellPrice) || 0,
         }))
     ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -44,7 +48,9 @@ export default function MovementsPage() {
             t.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
             t.barcode.includes(searchQuery) ||
             t.brand?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            t.channel?.toLowerCase().includes(searchQuery.toLowerCase());
+            t.channel?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (t.customerName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (t.customerCode || '').toLowerCase().includes(searchQuery.toLowerCase());
 
         const matchesType = typeFilter === 'ALL' ? true : t.type === typeFilter;
 
@@ -168,13 +174,16 @@ export default function MovementsPage() {
                                     <th className="px-6 py-4">Ürün</th>
                                     <th className="px-6 py-4">Barkod</th>
                                     <th className="px-6 py-4 text-center">Adet</th>
+                                    <th className="px-6 py-4 text-right">Birim Fiyat</th>
+                                    <th className="px-6 py-4 text-right">Tutar</th>
+                                    <th className="px-6 py-4">Cari</th>
                                     <th className="px-6 py-4">Kanal / Not</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-800">
                                 {filteredTransactions.length === 0 ? (
                                     <tr>
-                                        <td colSpan={7} className="px-6 py-12 text-center text-zinc-500">
+                                        <td colSpan={10} className="px-6 py-12 text-center text-zinc-500">
                                             {allTransactions.length === 0 ? "Henüz işlem kaydı yok." : "Aranan kriterlere uygun kayıt bulunamadı."}
                                         </td>
                                     </tr>
@@ -203,10 +212,17 @@ export default function MovementsPage() {
                                                 {new Date(t.date).toLocaleString('tr-TR')}
                                             </td>
                                             <td className="px-6 py-4">
-                                                <div className={`flex items-center gap-2 font-medium ${t.type === 'IN' ? 'text-green-500' : 'text-red-500'}`}>
-                                                    {t.type === 'IN' ? <ArrowDownCircle className="w-4 h-4" /> : <ArrowUpCircle className="w-4 h-4" />}
-                                                    {t.type === 'IN' ? 'Giriş' : 'Çıkış'}
-                                                </div>
+                                                {t.type === 'IN' && (t as any).kind === 'RETURN' ? (
+                                                    <div className="flex items-center gap-2 font-medium text-purple-400">
+                                                        <ArrowDownCircle className="w-4 h-4" />
+                                                        İade (Giriş)
+                                                    </div>
+                                                ) : (
+                                                    <div className={`flex items-center gap-2 font-medium ${t.type === 'IN' ? 'text-green-500' : 'text-red-500'}`}>
+                                                        {t.type === 'IN' ? <ArrowDownCircle className="w-4 h-4" /> : <ArrowUpCircle className="w-4 h-4" />}
+                                                        {t.type === 'IN' ? 'Giriş' : 'Çıkış'}
+                                                    </div>
+                                                )}
                                             </td>
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center gap-3">
@@ -226,6 +242,37 @@ export default function MovementsPage() {
                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${t.type === 'IN' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
                                                     {t.quantity}
                                                 </span>
+                                            </td>
+                                            <td className="px-6 py-4 text-right text-zinc-300 font-mono text-xs">
+                                                {t.type === 'OUT' ? (
+                                                    currency(Number((t as any).unitPrice) || 0)
+                                                ) : (t.type === 'IN' && (t as any).kind === 'RETURN') ? (
+                                                    currency(Number((t as any).unitPrice) || 0)
+                                                ) : (
+                                                    '-'
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4 text-right font-mono text-xs">
+                                                {t.type === 'OUT' || (t.type === 'IN' && (t as any).kind === 'RETURN') ? (
+                                                    <span className="font-bold text-blue-300">
+                                                        {currency(
+                                                            Number((t as any).totalPrice) ||
+                                                            ((Number((t as any).unitPrice) || t.itemSellPrice || 0) * (Number(t.quantity) || 0))
+                                                        )}
+                                                    </span>
+                                                ) : (
+                                                    '-'
+                                                )}
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                {(t.customerName || t.customerCode) ? (
+                                                    <div className="text-xs">
+                                                        <div className="font-medium text-white line-clamp-1">{t.customerName}</div>
+                                                        {t.customerCode && <div className="text-zinc-500 font-mono">{t.customerCode}</div>}
+                                                    </div>
+                                                ) : (
+                                                    '-'
+                                                )}
                                             </td>
                                             <td className="px-6 py-4">
                                                 {t.channel ? (
@@ -269,6 +316,11 @@ export default function MovementsPage() {
                                                     <p className="text-xs text-zinc-500">{new Date(t.date).toLocaleString('tr-TR')}</p>
                                                     {t.channel && (
                                                         <p className="text-xs text-zinc-500">{t.channel}</p>
+                                                    )}
+                                                    {(t as any).customerName && (
+                                                        <p className="text-xs text-zinc-400">
+                                                            Cari: {(t as any).customerName}{(t as any).customerCode ? ` (${(t as any).customerCode})` : ''}
+                                                        </p>
                                                     )}
                                                 </div>
                                                 <span className={cn(

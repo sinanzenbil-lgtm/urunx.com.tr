@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStockStore } from '@/lib/store';
 import { Input } from '@/components/ui/input';
@@ -24,6 +24,9 @@ export default function SearchPage() {
     // If query is empty, show all items (or slice of them). 
     // searchItems return all containing empty string which is everything.
     const results = searchItems(query);
+    const sortedResults = useMemo(() => {
+        return [...results].sort((a, b) => (a.name || '').localeCompare((b.name || ''), 'tr'));
+    }, [results]);
 
     const handleUpdate = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -60,12 +63,12 @@ export default function SearchPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {results.length === 0 ? (
+                {sortedResults.length === 0 ? (
                     <div className="col-span-full text-center py-20 text-zinc-500">
                         Ürün bulunamadı.
                     </div>
                 ) : (
-                    results.map((item) => (
+                    sortedResults.map((item) => (
                         <Card key={item.id} className="group hover:border-primary/50 transition-colors cursor-pointer" onClick={() => setTransactionsItem(item)}>
                             <CardHeader className="pb-2">
                                 <CardTitle className="flex justify-between items-start">

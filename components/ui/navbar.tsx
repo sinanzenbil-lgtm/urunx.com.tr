@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useStockStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, LogIn, LogOut, Search, Package, History, BarChart3 } from 'lucide-react';
+import { LayoutDashboard, LogIn, LogOut, Search, Package, History, BarChart3, ShoppingCart, Users, RotateCcw } from 'lucide-react';
 
 export default function Navbar() {
     const pathname = usePathname();
@@ -21,9 +21,24 @@ export default function Navbar() {
             icon: LogIn,
         },
         {
+            href: '/iade',
+            label: 'İade',
+            icon: RotateCcw,
+        },
+        {
             href: '/cikis',
             label: 'Hızlı Çıkış',
             icon: LogOut,
+        },
+        {
+            href: '/satis',
+            label: 'Satış',
+            icon: ShoppingCart,
+        },
+        {
+            href: '/cari',
+            label: 'Cari Takip',
+            icon: Users,
         },
         {
             href: '/urunler',

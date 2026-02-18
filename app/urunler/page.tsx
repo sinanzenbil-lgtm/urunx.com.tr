@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { StockItem } from '@/types';
-import { Package, Scan, Search, Edit, X, PlusCircle, MinusCircle, Trash2, Download, ArrowUp, ArrowDown } from 'lucide-react';
+import { Package, Scan, Search, Edit, X, PlusCircle, MinusCircle, Trash2, Download, ArrowUp, ArrowDown, Copy } from 'lucide-react';
 import * as dbActions from '@/lib/actions';
 import { cn } from '@/lib/utils';
 import * as XLSX from 'xlsx';
@@ -32,7 +32,8 @@ export default function ProductsPage() {
     const [imageUrlInput, setImageUrlInput] = useState('');
     const [selectedBrand, setSelectedBrand] = useState<string>('');
     type SortKey = 'name' | 'brand' | 'stockCode' | 'quantity' | 'buyPrice' | 'sellPrice';
-    const [sortBy, setSortBy] = useState<SortKey | null>(null);
+    // Default: sort by product name (A-Z)
+    const [sortBy, setSortBy] = useState<SortKey>('name');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
     // Debounce arama: yazmayı bırakınca filtre çalışsın (performans)
@@ -364,7 +365,7 @@ export default function ProductsPage() {
                         <table className="w-full text-xs text-left">
                             <thead className="bg-zinc-900 border-b border-zinc-800 text-[11px] uppercase tracking-wide text-zinc-400">
                                 <tr>
-                                    <th className="px-3 py-3 w-8">
+                                    <th className="px-3 py-2 w-8">
                                         <input
                                             type="checkbox"
                                             checked={selectedIds.length > 0 && selectedIds.length === sortedItems.length}
@@ -372,8 +373,8 @@ export default function ProductsPage() {
                                             className="w-4 h-4 accent-primary rounded"
                                         />
                                     </th>
-                                    <th className="px-4 py-3 w-[96px]">Görsel</th>
-                                    <th className="px-4 py-3">
+                                    <th className="px-4 py-2 w-[78px]">Görsel</th>
+                                    <th className="px-4 py-2">
                                         <div className="flex items-center gap-1">
                                             Marka
                                             <span className="inline-flex flex-col">
@@ -382,7 +383,7 @@ export default function ProductsPage() {
                                             </span>
                                         </div>
                                     </th>
-                                    <th className="px-4 py-3">
+                                    <th className="px-4 py-2">
                                         <div className="flex items-center gap-1">
                                             Ürün Bilgisi
                                             <span className="inline-flex flex-col">
@@ -391,7 +392,7 @@ export default function ProductsPage() {
                                             </span>
                                         </div>
                                     </th>
-                                    <th className="px-4 py-3">
+                                    <th className="px-4 py-2">
                                         <div className="flex items-center gap-1">
                                             Stok Kodu
                                             <span className="inline-flex flex-col">
@@ -400,8 +401,8 @@ export default function ProductsPage() {
                                             </span>
                                         </div>
                                     </th>
-                                    <th className="px-4 py-3">Barkod</th>
-                                    <th className="px-4 py-3 text-center">
+                                    <th className="px-4 py-2">Barkod</th>
+                                    <th className="px-4 py-2 text-center">
                                         <div className="flex items-center justify-center gap-1">
                                             Stok
                                             <span className="inline-flex flex-col">
@@ -410,8 +411,8 @@ export default function ProductsPage() {
                                             </span>
                                         </div>
                                     </th>
-                                    <th className="px-4 py-3 text-right">KDV</th>
-                                    <th className="px-4 py-3 text-right">
+                                    <th className="px-4 py-2 text-right">KDV</th>
+                                    <th className="px-4 py-2 text-right">
                                         <div className="flex items-center justify-end gap-1">
                                             Alış Fiyatı
                                             <span className="inline-flex flex-col">
@@ -420,7 +421,7 @@ export default function ProductsPage() {
                                             </span>
                                         </div>
                                     </th>
-                                    <th className="px-4 py-3 text-right">
+                                    <th className="px-4 py-2 text-right">
                                         <div className="flex items-center justify-end gap-1">
                                             Toptan Satış
                                             <span className="inline-flex flex-col">
@@ -429,7 +430,7 @@ export default function ProductsPage() {
                                             </span>
                                         </div>
                                     </th>
-                                    <th className="px-4 py-3 text-right">İşlemler</th>
+                                    <th className="px-4 py-2 text-right">İşlemler</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-800">
@@ -442,10 +443,10 @@ export default function ProductsPage() {
                                 ) : (
                                     sortedItems.map((item) => (
                                         <tr key={item.id} className={cn(
-                                            "hover:bg-zinc-900/50 transition-colors group cursor-pointer",
+                                            "hover:bg-zinc-900/50 transition-colors group",
                                             selectedIds.includes(item.id) && "bg-primary/5"
-                                        )} onClick={() => setTransactionsItem(item)}>
-                                            <td className="px-3 py-3">
+                                        )}>
+                                            <td className="px-3 py-2">
                                                 <input
                                                     type="checkbox"
                                                     checked={selectedIds.includes(item.id)}
@@ -454,33 +455,109 @@ export default function ProductsPage() {
                                                     className="w-4 h-4 accent-primary rounded"
                                                 />
                                             </td>
-                                            <td className="px-4 py-3">
-                                                <div className="w-20 h-20 bg-zinc-900 rounded-lg border border-zinc-800 flex items-center justify-center overflow-hidden">
+                                            <td className="px-4 py-2">
+                                                <div
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setEditingItem(item);
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') {
+                                                            e.preventDefault();
+                                                            setEditingItem(item);
+                                                        }
+                                                    }}
+                                                    className="w-14 h-14 bg-zinc-900 rounded-lg border border-zinc-800 flex items-center justify-center overflow-hidden cursor-pointer hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                                    title="Ürünü düzenle"
+                                                    aria-label={`${item.name} ürününü düzenle`}
+                                                >
                                                     {item.image ? (
-                                                        <img src={item.image} alt={item.name} className="w-full h-full object-contain p-1 group-hover:scale-105 transition-transform duration-500" />
+                                                        <img src={item.image} alt={item.name} className="w-full h-full object-contain p-0.5 group-hover:scale-105 transition-transform duration-500" />
                                                     ) : (
                                                         <Package className="w-7 h-7 text-zinc-700" />
                                                     )}
                                                 </div>
                                             </td>
-                                            <td className="px-4 py-3">
+                                            <td className="px-4 py-2">
                                                 <div className="text-zinc-300 font-medium">{item.brand || '-'}</div>
                                             </td>
-                                            <td className="px-4 py-3">
-                                                <div className="font-medium text-sm text-white">{item.name}</div>
+                                            <td className="px-4 py-2">
+                                                <div
+                                                    role="button"
+                                                    tabIndex={0}
+                                                    onClick={() => setTransactionsItem(item)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') {
+                                                            e.preventDefault();
+                                                            setTransactionsItem(item);
+                                                        }
+                                                    }}
+                                                    className="font-medium text-[13px] text-white hover:underline underline-offset-4 cursor-pointer w-fit leading-tight"
+                                                    title="Ürün hareketlerini görüntüle"
+                                                >
+                                                    {item.name}
+                                                </div>
                                             </td>
-                                            <td className="px-4 py-3">
-                                                <div className="text-zinc-400 font-mono">{item.stockCode || '-'}</div>
+                                            <td className="px-4 py-2">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-zinc-400 font-mono truncate max-w-[180px]">{item.stockCode || '-'}</span>
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-7 w-7 text-zinc-400 hover:text-white hover:bg-zinc-800"
+                                                        disabled={!item.stockCode}
+                                                        onClick={async (e) => {
+                                                            e.stopPropagation();
+                                                            if (!item.stockCode) return;
+                                                            try {
+                                                                await navigator.clipboard.writeText(item.stockCode);
+                                                                toast.success('Stok kodu kopyalandı');
+                                                            } catch {
+                                                                toast.error('Kopyalama başarısız');
+                                                            }
+                                                        }}
+                                                        title="Stok kodunu kopyala"
+                                                        aria-label="Stok kodunu kopyala"
+                                                    >
+                                                        <Copy className="w-4 h-4" />
+                                                    </Button>
+                                                </div>
                                             </td>
-                                            <td className="px-4 py-3 font-mono text-zinc-500">
-                                                {item.barcode}
+                                            <td className="px-4 py-2 font-mono text-zinc-500">
+                                                <div className="flex items-center gap-2">
+                                                    <span className="truncate max-w-[180px]">{item.barcode || '-'}</span>
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-7 w-7 text-zinc-400 hover:text-white hover:bg-zinc-800"
+                                                        disabled={!item.barcode}
+                                                        onClick={async (e) => {
+                                                            e.stopPropagation();
+                                                            if (!item.barcode) return;
+                                                            try {
+                                                                await navigator.clipboard.writeText(item.barcode);
+                                                                toast.success('Barkod kopyalandı');
+                                                            } catch {
+                                                                toast.error('Kopyalama başarısız');
+                                                            }
+                                                        }}
+                                                        title="Barkodu kopyala"
+                                                        aria-label="Barkodu kopyala"
+                                                    >
+                                                        <Copy className="w-4 h-4" />
+                                                    </Button>
+                                                </div>
                                             </td>
-                                            <td className="px-4 py-3 text-center">
+                                            <td className="px-4 py-2 text-center">
                                                 <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${item.quantity > 0 ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
                                                     {item.quantity}
                                                 </span>
                                             </td>
-                                            <td className="px-4 py-3 text-right text-zinc-400">
+                                            <td className="px-4 py-2 text-right text-zinc-400">
                                                 %{item.vatRate || 0}
                                             </td>
                                             <td className="px-4 py-3 text-right text-zinc-400">
@@ -650,6 +727,47 @@ export default function ProductsPage() {
                                 </DialogDescription>
                             </DialogHeader>
                             <form onSubmit={handleUpdate} className="space-y-4 pt-4">
+                                {/* Large image preview at the top */}
+                                <div className="mx-auto w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
+                                    <div className="w-full h-44 sm:h-52 flex items-center justify-center">
+                                        {editingItem.image ? (
+                                            <img
+                                                src={editingItem.image}
+                                                alt={`${editingItem.name} görseli`}
+                                                className="w-full h-full object-contain p-3"
+                                            />
+                                        ) : (
+                                            <div className="text-sm text-zinc-500">Görsel yok</div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Resim Yükle (Opsiyonel)</label>
+                                    <Input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={handleImageUpload}
+                                        className="cursor-pointer file:cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-white hover:file:bg-primary/90"
+                                    />
+                                    <div className="space-y-2 mt-2">
+                                        <Button type="button" variant="secondary" onClick={handlePasteFromClipboard} className="w-full">
+                                            Panodan Yapıştır
+                                        </Button>
+                                        <div className="flex gap-2">
+                                            <Input
+                                                placeholder="Resim URL girin"
+                                                value={imageUrlInput}
+                                                onChange={(e) => setImageUrlInput(e.target.value)}
+                                                className="flex-1"
+                                            />
+                                            <Button type="button" variant="secondary" onClick={handleLoadFromUrl} className="whitespace-nowrap">
+                                                Yükle
+                                            </Button>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">Ürün Adı</label>
                                     <Input
@@ -717,36 +835,6 @@ export default function ProductsPage() {
                                             <option value={20}>%20</option>
                                         </select>
                                     </div>
-                                </div>
-                                <div className="space-y-2">
-                                    <label className="text-sm font-medium">Resim Yükle (Opsiyonel)</label>
-                                    <Input
-                                        type="file"
-                                        accept="image/*"
-                                        onChange={handleImageUpload}
-                                        className="cursor-pointer file:cursor-pointer file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-white hover:file:bg-primary/90"
-                                    />
-                                    <div className="space-y-2 mt-2">
-                                        <Button type="button" variant="secondary" onClick={handlePasteFromClipboard} className="w-full">
-                                            Panodan Yapıştır
-                                        </Button>
-                                        <div className="flex gap-2">
-                                            <Input
-                                                placeholder="Resim URL girin"
-                                                value={imageUrlInput}
-                                                onChange={(e) => setImageUrlInput(e.target.value)}
-                                                className="flex-1"
-                                            />
-                                            <Button type="button" variant="secondary" onClick={handleLoadFromUrl} className="whitespace-nowrap">
-                                                Yükle
-                                            </Button>
-                                        </div>
-                                    </div>
-                                    {editingItem.image && (
-                                        <div className="mt-2 p-2 bg-zinc-900 rounded-lg border border-zinc-800">
-                                            <img src={editingItem.image} alt="Preview" className="w-full h-32 object-contain" />
-                                        </div>
-                                    )}
                                 </div>
                                 <div className="pt-4 flex justify-end gap-2">
                                     <Button type="button" variant="ghost" onClick={() => setEditingItem(null)}>İptal</Button>
