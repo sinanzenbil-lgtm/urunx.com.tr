@@ -1,7 +1,7 @@
 'use server';
 
 import { sql } from './db';
-import { Customer, CustomerPayment, PaymentMethod, StockItem, Transaction } from '@/types';
+import { Customer, PaymentMethod, StockItem, Transaction } from '@/types';
 import { revalidatePath } from 'next/cache';
 
 export async function getItems() {
@@ -45,23 +45,49 @@ export async function getItems() {
         `;
 
         // Ensure numeric fields are numbers (sometimes DECIMAL comes as string)
-        const formattedItems = (items as any[]).map((item) => ({
-            ...item,
-            barcode: item.barcode ?? '',
-            stockCode: item.stockCode ?? '',
-            buyPrice: Number(item.buyPrice) || 0,
-            sellPrice: Number(item.sellPrice) || 0,
-            vatRate: Number(item.vatRate) || 0,
-            quantity: Number(item.quantity) || 0,
-            transactions: Array.isArray(item.transactions)
-                ? item.transactions.map((t: any) => ({
-                    ...t,
-                    quantity: Number(t.quantity) || 0,
-                    unitPrice: t.unitPrice === undefined || t.unitPrice === null ? undefined : (Number(t.unitPrice) || 0),
-                    totalPrice: t.totalPrice === undefined || t.totalPrice === null ? undefined : (Number(t.totalPrice) || 0),
-                }))
-                : [],
-        }));
+        type DbItemRow = {
+            id: string;
+            barcode: string | null;
+            stockCode: string | null;
+            name: string;
+            image: string | null;
+            description: string | null;
+            brand: string | null;
+            vatRate: unknown;
+            buyPrice: unknown;
+            sellPrice: unknown;
+            quantity: unknown;
+            createdAt: string;
+            updatedAt: string;
+            transactions: unknown;
+        };
+
+        const formattedItems = (items as unknown as DbItemRow[]).map((item) => {
+            const txs = Array.isArray(item.transactions) ? (item.transactions as unknown[]) : [];
+            const transactions: Transaction[] = txs.map((t) => {
+                const tx = (t ?? {}) as Record<string, unknown>;
+                const quantity = Number(tx['quantity']) || 0;
+                const unitPriceRaw = tx['unitPrice'];
+                const totalPriceRaw = tx['totalPrice'];
+                return {
+                    ...(tx as unknown as Transaction),
+                    quantity,
+                    unitPrice: unitPriceRaw === undefined || unitPriceRaw === null ? undefined : (Number(unitPriceRaw) || 0),
+                    totalPrice: totalPriceRaw === undefined || totalPriceRaw === null ? undefined : (Number(totalPriceRaw) || 0),
+                };
+            });
+
+            return {
+                ...(item as unknown as StockItem),
+                barcode: item.barcode ?? '',
+                stockCode: item.stockCode ?? '',
+                buyPrice: Number(item.buyPrice) || 0,
+                sellPrice: Number(item.sellPrice) || 0,
+                vatRate: Number(item.vatRate) || 0,
+                quantity: Number(item.quantity) || 0,
+                transactions,
+            };
+        });
 
         return formattedItems as unknown as StockItem[];
     } catch (error) {
@@ -150,7 +176,7 @@ export async function addTransaction(itemId: string, transaction: Transaction) {
             Number(transaction.totalPrice) ||
             (unitPrice > 0 ? unitPrice * (Number(transaction.quantity) || 0) : 0);
         const customerId = (transaction.customerId || '').trim() || null;
-        const kind = (transaction.kind || 'NORMAL') as any;
+        const kind = String(transaction.kind || 'NORMAL');
 
         // 1. Add transaction
         await sql`
@@ -214,17 +240,17 @@ export async function bulkAddItems(items: StockItem[]) {
                 if (item.transactions && item.transactions.length > 0) {
                     for (const t of item.transactions) {
                         try {
-                            const unitPrice = Number((t as any).unitPrice) || 0;
+                            const unitPrice = Number(t.unitPrice) || 0;
                             const totalPrice =
-                                Number((t as any).totalPrice) ||
+                                Number(t.totalPrice) ||
                                 (unitPrice > 0 ? unitPrice * (Number(t.quantity) || 0) : 0);
-                            const customerId = String((t as any).customerId || '').trim() || null;
-                            const kind = String((t as any).kind || 'NORMAL');
+                            const customerId = String(t.customerId || '').trim() || null;
+                            const kind = String(t.kind || 'NORMAL');
                             await sql`
                                 INSERT INTO transactions (id, item_id, customer_id, date, type, kind, quantity, channel, unit_price, total_price)
                                 VALUES (${t.id ?? crypto.randomUUID()}, ${item.id}, ${customerId}, ${t.date}, ${t.type}, ${kind}, ${t.quantity}, ${t.channel}, ${unitPrice}, ${totalPrice})
                             `;
-                        } catch (txError) {
+                        } catch {
                             // Skip if transaction already exists
                             console.log('Transaction already exists, skipping:', t.id);
                         }
@@ -255,7 +281,7 @@ export async function bulkRemoveItems(ids: string[]) {
 export async function removeTransactions(transactionIds: string[]) {
     try {
         const transactions = await sql`
-            SELECT id, item_id, type, quantity 
+            SELECT id, item_id, customer_id, type, quantity 
             FROM transactions 
             WHERE id = ANY(${transactionIds})
         `;
@@ -270,6 +296,12 @@ export async function removeTransactions(transactionIds: string[]) {
             adjustments[itemId] = (adjustments[itemId] || 0) + change;
         }
 
+        type TxRow = { customer_id: string | null };
+        const txRows = transactions as unknown as TxRow[];
+        const customerIds = Array.from(
+            new Set(txRows.map((t) => t.customer_id).filter((v): v is string => typeof v === 'string' && v.length > 0))
+        );
+
         for (const [itemId, change] of Object.entries(adjustments)) {
             await sql`
                 UPDATE items 
@@ -282,9 +314,236 @@ export async function removeTransactions(transactionIds: string[]) {
 
         revalidatePath('/urunler');
         revalidatePath('/hareketler');
+        revalidatePath('/cari');
+        for (const cid of customerIds) revalidatePath(`/cari/${cid}`);
         return { success: true };
     } catch (error) {
         console.error('Error removing transactions:', error);
+        return { success: false, error };
+    }
+}
+
+export async function updateCustomer(customerId: string, payload: { customerCode?: string; name?: string }) {
+    try {
+        const id = (customerId || '').trim();
+        if (!id) return { success: false, error: 'customerId is required' };
+
+        const name = (payload.name ?? '').trim();
+        if (!name) return { success: false, error: 'name is required' };
+
+        const codeRaw = (payload.customerCode ?? '').trim();
+        const code = codeRaw.length > 0 ? codeRaw : null;
+
+        await sql`
+            UPDATE customers
+            SET customer_code = ${code},
+                name = ${name}
+            WHERE id = ${id};
+        `;
+
+        revalidatePath('/cari');
+        revalidatePath(`/cari/${id}`);
+        return { success: true };
+    } catch (error) {
+        console.error('Error updating customer:', error);
+        return { success: false, error };
+    }
+}
+
+export async function removeCustomer(customerId: string) {
+    try {
+        const id = (customerId || '').trim();
+        if (!id) return { success: false, error: 'customerId is required' };
+
+        // Keep stock history: detach transactions from customer, but keep transactions.
+        // Payments will be cascaded (customer_payments.customer_id ON DELETE CASCADE).
+        await sql`UPDATE transactions SET customer_id = NULL WHERE customer_id = ${id};`;
+        await sql`DELETE FROM customers WHERE id = ${id};`;
+
+        revalidatePath('/cari');
+        revalidatePath('/hareketler');
+        revalidatePath('/urunler');
+        return { success: true };
+    } catch (error) {
+        console.error('Error removing customer:', error);
+        return { success: false, error };
+    }
+}
+
+export async function updateTransaction(
+    transactionId: string,
+    updates: {
+        date?: string;
+        quantity?: number;
+        channel?: string | null;
+        unitPrice?: number | string;
+        totalPrice?: number | string;
+        customerId?: string | null;
+    }
+) {
+    try {
+        const id = (transactionId || '').trim();
+        if (!id) return { success: false, error: 'transactionId is required' };
+
+        const rows = await sql`
+            SELECT id, item_id, customer_id, date, type, kind, quantity, channel, unit_price, total_price
+            FROM transactions
+            WHERE id = ${id}
+            LIMIT 1;
+        `;
+        if (!rows?.length) return { success: false, error: 'transaction not found' };
+
+        type TransactionRow = {
+            item_id: string;
+            customer_id: string | null;
+            date: string;
+            type: 'IN' | 'OUT';
+            kind: string | null;
+            quantity: unknown;
+            channel: string | null;
+            unit_price: unknown;
+            total_price: unknown;
+        };
+        const old = rows[0] as unknown as TransactionRow;
+        const itemId = String(old.item_id);
+        const type = old.type;
+        const oldQty = Number(old.quantity) || 0;
+        const oldCustomerId = old.customer_id || null;
+        const kind = String(old.kind || 'NORMAL');
+
+        const nextQty = Number(updates.quantity ?? oldQty) || 0;
+        if (nextQty <= 0) return { success: false, error: 'quantity must be > 0' };
+
+        const nextDate = (updates.date || old.date) as string;
+        const nextChannelRaw = updates.channel === undefined ? (old.channel as string | null) : updates.channel;
+        const nextChannel = (nextChannelRaw || '').trim() || null;
+
+        const nextCustomerIdRaw =
+            updates.customerId === undefined ? (old.customer_id as string | null) : updates.customerId;
+        const nextCustomerId = (String(nextCustomerIdRaw || '').trim() || null) as string | null;
+
+        const unitPriceNum =
+            updates.unitPrice === undefined ? Number(old.unit_price) || 0 : Number(updates.unitPrice) || 0;
+
+        const isPriced = type === 'OUT' || (type === 'IN' && kind === 'RETURN');
+        const nextTotalPrice =
+            updates.totalPrice !== undefined
+                ? Number(updates.totalPrice) || 0
+                : (isPriced ? unitPriceNum * nextQty : 0);
+
+        // Adjust stock quantity based on delta
+        const deltaQty = nextQty - oldQty;
+        const stockAdjustment = type === 'IN' ? deltaQty : -deltaQty;
+
+        if (stockAdjustment !== 0) {
+            await sql`
+                UPDATE items
+                SET quantity = quantity + ${stockAdjustment},
+                    updated_at = ${new Date().toISOString()}
+                WHERE id = ${itemId};
+            `;
+        }
+
+        await sql`
+            UPDATE transactions
+            SET customer_id = ${nextCustomerId},
+                date = ${nextDate},
+                quantity = ${nextQty},
+                channel = ${nextChannel},
+                unit_price = ${unitPriceNum},
+                total_price = ${nextTotalPrice}
+            WHERE id = ${id};
+        `;
+
+        revalidatePath('/urunler');
+        revalidatePath('/hareketler');
+        revalidatePath('/cari');
+        if (oldCustomerId) revalidatePath(`/cari/${oldCustomerId}`);
+        if (nextCustomerId) revalidatePath(`/cari/${nextCustomerId}`);
+
+        return { success: true, kind };
+    } catch (error) {
+        console.error('Error updating transaction:', error);
+        return { success: false, error };
+    }
+}
+
+export async function updateCustomerPayment(
+    paymentId: string,
+    updates: {
+        date?: string;
+        amount?: number;
+        method?: PaymentMethod;
+        description?: string;
+    }
+) {
+    try {
+        const id = (paymentId || '').trim();
+        if (!id) return { success: false, error: 'paymentId is required' };
+
+        const rows = await sql`
+            SELECT id, customer_id, date, amount, method, description
+            FROM customer_payments
+            WHERE id = ${id}
+            LIMIT 1;
+        `;
+        if (!rows?.length) return { success: false, error: 'payment not found' };
+
+        type PaymentRow = {
+            customer_id: string;
+            date: string;
+            amount: unknown;
+            method: PaymentMethod;
+            description: string | null;
+        };
+        const old = rows[0] as unknown as PaymentRow;
+        const customerId = String(old.customer_id);
+
+        const nextDate = (updates.date || old.date) as string;
+        const nextAmount = updates.amount === undefined ? Number(old.amount) || 0 : Number(updates.amount) || 0;
+        const nextMethod = (updates.method || old.method) as PaymentMethod;
+        const nextDesc = (updates.description ?? old.description ?? '').trim() || null;
+
+        if (nextAmount <= 0) return { success: false, error: 'amount must be > 0' };
+        if (!nextMethod) return { success: false, error: 'method is required' };
+
+        await sql`
+            UPDATE customer_payments
+            SET date = ${nextDate},
+                amount = ${nextAmount},
+                method = ${nextMethod},
+                description = ${nextDesc}
+            WHERE id = ${id};
+        `;
+
+        revalidatePath('/cari');
+        revalidatePath(`/cari/${customerId}`);
+        return { success: true, customerId };
+    } catch (error) {
+        console.error('Error updating customer payment:', error);
+        return { success: false, error };
+    }
+}
+
+export async function removeCustomerPayments(paymentIds: string[]) {
+    try {
+        if (!paymentIds?.length) return { success: true };
+        const rows = await sql`
+            SELECT id, customer_id
+            FROM customer_payments
+            WHERE id = ANY(${paymentIds});
+        `;
+        const customerIds = Array.from(
+            new Set((rows as unknown as Array<{ customer_id: string }>).map((r) => String(r.customer_id)).filter(Boolean))
+        );
+
+        await sql`DELETE FROM customer_payments WHERE id = ANY(${paymentIds});`;
+
+        revalidatePath('/cari');
+        for (const cid of customerIds) revalidatePath(`/cari/${cid}`);
+        return { success: true };
+    } catch (error) {
+        console.error('Error removing customer payments:', error);
         return { success: false, error };
     }
 }
@@ -325,7 +584,8 @@ export async function getCustomers() {
             ORDER BY COALESCE(NULLIF(c.customer_code, ''), c.name) ASC;
         `;
 
-        return (customers as any[]).map((c) => ({
+        const rows = customers as unknown as Array<{ salesTotal: unknown; paymentTotal: unknown; balance: unknown } & Customer>;
+        return rows.map((c) => ({
             ...c,
             salesTotal: Number(c.salesTotal) || 0,
             paymentTotal: Number(c.paymentTotal) || 0,
@@ -418,7 +678,7 @@ export async function getCustomerMovements(customerId: string) {
         return { success: true, rows };
     } catch (error) {
         console.error('Error fetching customer movements:', error);
-        return { success: false, error, rows: [] as any[] };
+        return { success: false, error, rows: [] as unknown[] };
     }
 }
 

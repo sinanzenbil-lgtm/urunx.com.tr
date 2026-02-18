@@ -8,17 +8,62 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { ArrowLeft, Building2, Package, PlusCircle, Landmark, Banknote, MoreHorizontal } from 'lucide-react';
+import { ArrowLeft, Building2, Package, PlusCircle, Landmark, Banknote, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import * as dbActions from '@/lib/actions';
+import { useStockStore } from '@/lib/store';
 
 const currency = (value: number) =>
   new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(value) || 0);
 
+type MovementTxKind = 'NORMAL' | 'RETURN';
+type MovementChannel = 'Pazaryeri' | 'Perakende' | 'Toptan';
+type PaymentMethod = 'Banka' | 'Nakit' | 'Diğer';
+
+type TxMovementRow = {
+  kind: 'TX';
+  id: string;
+  date: string;
+  type: 'IN' | 'OUT';
+  txKind: MovementTxKind | null;
+  quantity: number;
+  channel: MovementChannel | null;
+  unitPrice: number;
+  totalPrice: number;
+  itemId: string | null;
+  itemName: string | null;
+  barcode: string | null;
+  stockCode: string | null;
+  image: string | null;
+  brand: string | null;
+};
+
+type PaymentMovementRow = {
+  kind: 'PAYMENT';
+  id: string;
+  date: string;
+  type: 'PAYMENT';
+  quantity: number;
+  channel: null;
+  unitPrice: number;
+  totalPrice: number;
+  method: PaymentMethod;
+  description: string | null;
+  itemId: null;
+  itemName: null;
+  barcode: null;
+  stockCode: null;
+  image: null;
+  brand: null;
+};
+
+type MovementRow = TxMovementRow | PaymentMovementRow;
+
 export default function CariDetailPage() {
   const params = useParams<{ id: string }>();
   const customerId = params?.id as string;
+  const setItems = useStockStore((s) => s.setItems);
 
-  const [rows, setRows] = useState<any[]>([]);
+  const [rows, setRows] = useState<MovementRow[]>([]);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const today = new Date().toISOString().split('T')[0];
   const [payDate, setPayDate] = useState(today);
@@ -27,11 +72,29 @@ export default function CariDetailPage() {
   const [payDesc, setPayDesc] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [editingRow, setEditingRow] = useState<MovementRow | null>(null);
+  const [editDate, setEditDate] = useState('');
+  const [editQty, setEditQty] = useState('1');
+  const [editChannel, setEditChannel] = useState('');
+  const [editUnitPrice, setEditUnitPrice] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+  const [editMethod, setEditMethod] = useState<'Banka' | 'Nakit' | 'Diğer'>('Banka');
+  const [editDesc, setEditDesc] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const toLocalInput = (iso: string) => {
+    const d = new Date(iso);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const res = await dbActions.getCustomerMovements(customerId);
-      if (!cancelled) setRows((res as any).rows || []);
+      if (!cancelled) setRows(((res as unknown as { rows?: MovementRow[] }).rows || []) as MovementRow[]);
     })();
     return () => {
       cancelled = true;
@@ -65,9 +128,9 @@ export default function CariDetailPage() {
         method: payMethod,
         description: payDesc.trim() || undefined,
       });
-      if (!(res as any).success) throw new Error(String((res as any).error || 'failed'));
+      if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
       const updated = await dbActions.getCustomerMovements(customerId);
-      setRows((updated as any).rows || []);
+      setRows(((updated as unknown as { rows?: MovementRow[] }).rows || []) as MovementRow[]);
       toast.success('Tahsilat eklendi', { id: toastId });
       setPaymentOpen(false);
       setPayAmount('');
@@ -76,10 +139,111 @@ export default function CariDetailPage() {
       setPayDate(today);
     } catch (err) {
       toast.error('Tahsilat eklenirken hata oluştu', { id: toastId });
-      // eslint-disable-next-line no-console
       console.error(err);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const refresh = async () => {
+    const updated = await dbActions.getCustomerMovements(customerId);
+    setRows(((updated as unknown as { rows?: MovementRow[] }).rows || []) as MovementRow[]);
+    const nextItems = await dbActions.getItems();
+    setItems(nextItems || []);
+  };
+
+  const openEdit = (r: MovementRow) => {
+    setEditingRow(r);
+    setEditDate(toLocalInput(r.date));
+    if (r.kind === 'TX') {
+      setEditQty(String(r.quantity ?? 1));
+      setEditChannel(String(r.channel || ''));
+      setEditUnitPrice(String(r.unitPrice ?? ''));
+    } else {
+      setEditAmount(String(r.totalPrice ?? ''));
+      setEditMethod(r.method || 'Banka');
+      setEditDesc(String(r.description || ''));
+    }
+    setEditOpen(true);
+  };
+
+  const submitEdit = async () => {
+    if (!editingRow) return;
+    setSavingEdit(true);
+    const toastId = toast.loading('Güncelleniyor...');
+    try {
+      const isoDate = new Date(editDate).toISOString();
+      if (editingRow.kind === 'TX') {
+        const qty = Number(editQty);
+        if (!Number.isFinite(qty) || qty <= 0) {
+          toast.error('Adet geçerli olmalı', { id: toastId });
+          return;
+        }
+        const isPriced = editingRow.type === 'OUT' || (editingRow.type === 'IN' && editingRow.txKind === 'RETURN');
+        const unitPrice = isPriced ? Number(String(editUnitPrice).replace(',', '.')) : 0;
+        if (isPriced && (!Number.isFinite(unitPrice) || unitPrice < 0)) {
+          toast.error('Birim fiyat geçerli olmalı', { id: toastId });
+          return;
+        }
+        const res = await dbActions.updateTransaction(editingRow.id, {
+          date: isoDate,
+          quantity: qty,
+          channel: (editChannel || '').trim() || null,
+          unitPrice,
+          customerId, // keep same customer
+        });
+        if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
+      } else {
+        const amount = Number(String(editAmount).replace(',', '.'));
+        if (!Number.isFinite(amount) || amount <= 0) {
+          toast.error('Tutar geçerli olmalı', { id: toastId });
+          return;
+        }
+        const res = await dbActions.updateCustomerPayment(editingRow.id, {
+          date: isoDate,
+          amount,
+          method: editMethod,
+          description: editDesc.trim() || '',
+        });
+        if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
+      }
+      await refresh();
+      toast.success('Güncellendi', { id: toastId });
+      setEditOpen(false);
+      setEditingRow(null);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error(e);
+      toast.error('Güncellenemedi', { id: toastId });
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const openDelete = (r: MovementRow) => {
+    setEditingRow(r);
+    setDeleteOpen(true);
+  };
+
+  const submitDelete = async () => {
+    if (!editingRow) return;
+    const toastId = toast.loading('Siliniyor...');
+    try {
+      if (editingRow.kind === 'TX') {
+        const res = await dbActions.removeTransactions([editingRow.id]);
+        if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
+      } else {
+        const res = await dbActions.removeCustomerPayments([editingRow.id]);
+        if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
+      }
+      await refresh();
+      toast.success('Silindi', { id: toastId });
+      setDeleteOpen(false);
+      setEditingRow(null);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error(e);
+      toast.error('Silinemedi', { id: toastId });
     }
   };
 
@@ -161,12 +325,13 @@ export default function CariDetailPage() {
                   <th className="px-6 py-4">Detay</th>
                   <th className="px-6 py-4 text-center">Adet</th>
                   <th className="px-6 py-4 text-right">Tutar</th>
+                  <th className="px-6 py-4 text-right">İşlem</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800">
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-12 text-center text-zinc-500">
+                    <td colSpan={6} className="px-6 py-12 text-center text-zinc-500">
                       Kayıt yok.
                     </td>
                   </tr>
@@ -204,7 +369,7 @@ export default function CariDetailPage() {
                         ) : (
                           <div className="flex items-center gap-3">
                             <div className="w-8 h-8 bg-zinc-900 rounded border border-zinc-800 flex items-center justify-center overflow-hidden flex-shrink-0">
-                              {r.image ? <img src={r.image} className="w-full h-full object-contain" alt={r.itemName} /> : <Package className="w-4 h-4 text-zinc-700" />}
+                              {r.image ? <img src={r.image} className="w-full h-full object-contain" alt={r.itemName ?? ''} /> : <Package className="w-4 h-4 text-zinc-700" />}
                             </div>
                             <div>
                               <div className="font-medium text-white line-clamp-1">{r.itemName}</div>
@@ -225,6 +390,16 @@ export default function CariDetailPage() {
                       <td className={`px-6 py-4 text-right font-bold ${r.kind === 'PAYMENT' ? 'text-emerald-300' : 'text-blue-300'}`}>
                         {currency(Number(r.totalPrice) || 0)}
                       </td>
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button variant="outline" className="border-zinc-700 px-2" onClick={() => openEdit(r)}>
+                            <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button variant="destructive" className="px-2" onClick={() => openDelete(r)}>
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -233,6 +408,145 @@ export default function CariDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={editOpen} onOpenChange={(open) => !savingEdit && setEditOpen(open)}>
+        <DialogContent className="sm:max-w-md border-zinc-800">
+          <DialogHeader>
+            <DialogTitle>{editingRow?.kind === 'PAYMENT' ? 'Tahsilat Düzenle' : 'Hareket Düzenle'}</DialogTitle>
+            <DialogDescription>
+              {editingRow?.kind === 'PAYMENT' ? 'Tahsilat bilgisini güncelleyin.' : 'Satış / giriş / iade hareketini güncelleyin.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-zinc-300">Tarih</label>
+              <Input type="datetime-local" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+            </div>
+
+            {editingRow?.kind === 'PAYMENT' ? (
+              <>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-zinc-300">Tutar</label>
+                  <Input
+                    inputMode="decimal"
+                    value={editAmount}
+                    onChange={(e) => setEditAmount(e.target.value)}
+                    placeholder="Örn: 1500"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-zinc-300">Ödeme Cinsi</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={`gap-2 border-zinc-700 ${editMethod === 'Banka' ? 'bg-sky-600/20 text-white border-sky-500/50' : ''}`}
+                      onClick={() => setEditMethod('Banka')}
+                    >
+                      <Landmark className="w-4 h-4" />
+                      Banka
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={`gap-2 border-zinc-700 ${editMethod === 'Nakit' ? 'bg-emerald-600/20 text-white border-emerald-500/50' : ''}`}
+                      onClick={() => setEditMethod('Nakit')}
+                    >
+                      <Banknote className="w-4 h-4" />
+                      Nakit
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={`gap-2 border-zinc-700 ${editMethod === 'Diğer' ? 'bg-zinc-700/30 text-white border-zinc-500/50' : ''}`}
+                      onClick={() => setEditMethod('Diğer')}
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                      Diğer
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-zinc-300">Açıklama (opsiyonel)</label>
+                  <textarea
+                    value={editDesc}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                    placeholder="İsterseniz açıklama girebilirsiniz..."
+                    className="w-full min-h-[90px] rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ring-offset-zinc-950"
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-zinc-300">Adet</label>
+                  <Input type="number" min={1} value={editQty} onChange={(e) => setEditQty(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-zinc-300">Kanal</label>
+                  <select
+                    value={editChannel}
+                    onChange={(e) => setEditChannel(e.target.value)}
+                    className="h-10 px-3 rounded-md bg-zinc-900 border border-zinc-800 text-white focus:border-primary/50 focus:outline-none w-full"
+                  >
+                    <option value="">—</option>
+                    <option value="Pazaryeri">Pazaryeri</option>
+                    <option value="Perakende">Perakende</option>
+                    <option value="Toptan">Toptan</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-zinc-300">Birim Fiyat</label>
+                  <Input
+                    inputMode="decimal"
+                    value={editUnitPrice}
+                    onChange={(e) => setEditUnitPrice(e.target.value)}
+                    placeholder="Örn: 200"
+                    disabled={!(editingRow?.type === 'OUT' || (editingRow?.type === 'IN' && editingRow?.txKind === 'RETURN'))}
+                  />
+                  {!(editingRow?.type === 'OUT' || (editingRow?.type === 'IN' && editingRow?.txKind === 'RETURN')) && (
+                    <p className="text-xs text-zinc-500">Sadece satış/iade hareketlerinde fiyat düzenlenir.</p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" className="border-zinc-700" onClick={() => setEditOpen(false)} disabled={savingEdit}>
+              İptal
+            </Button>
+            <Button className="bg-sky-600 hover:bg-sky-700 text-white" onClick={submitEdit} disabled={savingEdit}>
+              Kaydet
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-md border-zinc-800">
+          <DialogHeader>
+            <DialogTitle className="text-red-500 flex items-center gap-2">
+              <Trash2 className="w-5 h-5" />
+              Silme Onayı
+            </DialogTitle>
+            <DialogDescription className="sr-only">Silme onayı.</DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <p className="text-zinc-300">Seçili kaydı silmek istiyor musunuz?</p>
+            {editingRow?.kind === 'TX' && (
+              <p className="text-xs text-amber-200 bg-amber-500/10 border border-amber-500/30 p-3 rounded">
+                Bu bir stok hareketi olduğu için silince stok miktarı otomatik düzeltilecek.
+              </p>
+            )}
+          </div>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="ghost" onClick={() => setDeleteOpen(false)}>Vazgeç</Button>
+            <Button variant="destructive" onClick={submitDelete}>Evet, Sil</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
         <DialogContent className="sm:max-w-md border-zinc-800">

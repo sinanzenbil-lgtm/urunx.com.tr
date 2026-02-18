@@ -6,11 +6,20 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Search, ArrowDownCircle, ArrowUpCircle, Trash2, Package } from 'lucide-react';
-import { useState } from 'react';
+import { Search, ArrowDownCircle, ArrowUpCircle, Trash2, Package, Pencil } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import * as dbActions from '@/lib/actions';
 import { cn } from '@/lib/utils';
-import { StockItem } from '@/types';
+import { Customer, StockItem, Transaction } from '@/types';
+
+type FlatTransaction = Transaction & {
+    productName: string;
+    barcode: string;
+    image?: string;
+    brand?: string;
+    itemId: string;
+    itemSellPrice: number;
+};
 
 const currency = (value: number) =>
     new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(value) || 0);
@@ -18,6 +27,7 @@ const currency = (value: number) =>
 export default function MovementsPage() {
     const items = useStockStore((state) => state.items);
     const removeStoreTransactions = useStockStore((state) => state.removeTransactions);
+    const setItems = useStockStore((state) => state.setItems);
 
     const yearStart = `${new Date().getFullYear()}-01-01`;
     const today = new Date().toISOString().split('T')[0];
@@ -27,23 +37,46 @@ export default function MovementsPage() {
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
     const [dateRange, setDateRange] = useState({ start: yearStart, end: today });
     const [typeFilter, setTypeFilter] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
+    const [deleteOneId, setDeleteOneId] = useState<string | null>(null);
+
+    const [editOpen, setEditOpen] = useState(false);
+    const [editingTx, setEditingTx] = useState<FlatTransaction | null>(null);
+    const [editDate, setEditDate] = useState('');
+    const [editQty, setEditQty] = useState('1');
+    const [editChannel, setEditChannel] = useState<string>('');
+    const [editUnitPrice, setEditUnitPrice] = useState<string>('');
+    const [editCustomerId, setEditCustomerId] = useState<string>('');
+    const [savingEdit, setSavingEdit] = useState(false);
+    const [customers, setCustomers] = useState<Customer[]>([]);
+
+    const toLocalInput = (iso: string) => {
+        const d = new Date(iso);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
 
     // Flatten all transactions from all items
-    const allTransactions = items.flatMap(item =>
-        item.transactions.map(t => ({
-            ...t,
-            productName: item.name,
-            barcode: item.barcode,
-            image: item.image,
-            brand: item.brand,
-            itemId: item.id,
-            itemSellPrice: Number(item.sellPrice) || 0,
-        }))
-    ).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    const allTransactions = useMemo<FlatTransaction[]>(
+        () =>
+            items
+                .flatMap((item) =>
+                    item.transactions.map((t) => ({
+                        ...t,
+                        productName: item.name,
+                        barcode: item.barcode,
+                        image: item.image,
+                        brand: item.brand,
+                        itemId: item.id,
+                        itemSellPrice: Number(item.sellPrice) || 0,
+                    }))
+                )
+                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+        [items]
+    );
 
     const [transactionsItem, setTransactionsItem] = useState<StockItem | null>(null);
 
-    const filteredTransactions = allTransactions.filter(t => {
+    const filteredTransactions = useMemo(() => allTransactions.filter(t => {
         const matchesSearch =
             t.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
             t.barcode.includes(searchQuery) ||
@@ -62,7 +95,12 @@ export default function MovementsPage() {
         const matchesDate = tDate >= start && tDate <= end;
 
         return matchesSearch && matchesType && matchesDate;
-    });
+    }), [allTransactions, dateRange.end, dateRange.start, searchQuery, typeFilter]);
+
+    useEffect(() => {
+        // Keep selection consistent with filters
+        setSelectedIds((prev) => prev.filter((id) => filteredTransactions.some((t) => t.id === id)));
+    }, [filteredTransactions]);
 
     const toggleSelectAll = () => {
         if (selectedIds.length === filteredTransactions.length) {
@@ -84,11 +122,99 @@ export default function MovementsPage() {
         toast.promise(dbActions.removeTransactions(selectedIds), {
             loading: 'İşlemler siliniyor ve stoklar güncelleniyor...',
             success: (data) => {
-                if (data.success) {
+                const res = data as Awaited<ReturnType<typeof dbActions.removeTransactions>>;
+                if (res.success) {
                     removeStoreTransactions(selectedIds);
                     setSelectedIds([]);
                     setIsDeleteOpen(false);
                     return 'İşlemler silindi ve stoklar eski haline getirildi.';
+                }
+                throw new Error('Silme başarısız');
+            },
+            error: 'Bir hata oluştu.'
+        });
+    };
+
+    const openEdit = async (t: FlatTransaction) => {
+        setEditingTx(t);
+        setEditDate(toLocalInput(t.date));
+        setEditQty(String(t.quantity ?? 1));
+        setEditChannel(String(t.channel || ''));
+        setEditUnitPrice(String(t.unitPrice ?? ''));
+        setEditCustomerId(String(t.customerId || ''));
+        setEditOpen(true);
+
+        if (customers.length === 0) {
+            try {
+                const rows = await dbActions.getCustomers();
+                setCustomers(rows || []);
+            } catch {
+                // ignore
+            }
+        }
+    };
+
+    const submitEdit = async () => {
+        if (!editingTx) return;
+        const qty = Number(editQty);
+        if (!Number.isFinite(qty) || qty <= 0) {
+            toast.error('Adet geçerli olmalı');
+            return;
+        }
+
+        const channel = (editChannel || '').trim();
+        const customerId = (editCustomerId || '').trim();
+        if (channel === 'Toptan' && !customerId) {
+            toast.error('Toptan için cari seçmelisiniz');
+            return;
+        }
+
+        const isPriced = editingTx.type === 'OUT' || (editingTx.type === 'IN' && editingTx.kind === 'RETURN');
+        const unitPrice = isPriced ? Number(String(editUnitPrice).replace(',', '.')) : 0;
+        if (isPriced && (!Number.isFinite(unitPrice) || unitPrice < 0)) {
+            toast.error('Birim fiyat geçerli olmalı');
+            return;
+        }
+
+        setSavingEdit(true);
+        const toastId = toast.loading('Hareket güncelleniyor...');
+        try {
+            const isoDate = new Date(editDate).toISOString();
+            const res = await dbActions.updateTransaction(editingTx.id, {
+                date: isoDate,
+                quantity: qty,
+                channel: channel || null,
+                unitPrice,
+                customerId: customerId ? customerId : null,
+            });
+            if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
+
+            const nextItems = await dbActions.getItems();
+            setItems(nextItems || []);
+
+            toast.success('Hareket güncellendi', { id: toastId });
+            setEditOpen(false);
+            setEditingTx(null);
+        } catch (e) {
+            console.error(e);
+            toast.error('Hareket güncellenemedi', { id: toastId });
+        } finally {
+            setSavingEdit(false);
+        }
+    };
+
+    const deleteOne = async () => {
+        if (!deleteOneId) return;
+        const id = deleteOneId;
+        setDeleteOneId(null);
+        toast.promise(dbActions.removeTransactions([id]), {
+            loading: 'Hareket siliniyor ve stok düzeltiliyor...',
+            success: (data) => {
+                const res = data as Awaited<ReturnType<typeof dbActions.removeTransactions>>;
+                if (res.success) {
+                    removeStoreTransactions([id]);
+                    setSelectedIds((prev) => prev.filter((x) => x !== id));
+                    return 'Hareket silindi.';
                 }
                 throw new Error('Silme başarısız');
             },
@@ -178,12 +304,13 @@ export default function MovementsPage() {
                                     <th className="px-6 py-4 text-right">Tutar</th>
                                     <th className="px-6 py-4">Cari</th>
                                     <th className="px-6 py-4">Kanal / Not</th>
+                                    <th className="px-6 py-4 text-right">İşlem</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-800">
                                 {filteredTransactions.length === 0 ? (
                                     <tr>
-                                        <td colSpan={10} className="px-6 py-12 text-center text-zinc-500">
+                                        <td colSpan={11} className="px-6 py-12 text-center text-zinc-500">
                                             {allTransactions.length === 0 ? "Henüz işlem kaydı yok." : "Aranan kriterlere uygun kayıt bulunamadı."}
                                         </td>
                                     </tr>
@@ -192,7 +319,7 @@ export default function MovementsPage() {
                                         <tr
                                             key={t.id}
                                             onClick={() => {
-                                                const item = items.find(i => i.id === (t as { itemId?: string }).itemId);
+                                                const item = items.find(i => i.id === t.itemId);
                                                 if (item) setTransactionsItem(item);
                                             }}
                                             className={cn(
@@ -212,7 +339,7 @@ export default function MovementsPage() {
                                                 {new Date(t.date).toLocaleString('tr-TR')}
                                             </td>
                                             <td className="px-6 py-4">
-                                                {t.type === 'IN' && (t as any).kind === 'RETURN' ? (
+                                                {t.type === 'IN' && t.kind === 'RETURN' ? (
                                                     <div className="flex items-center gap-2 font-medium text-purple-400">
                                                         <ArrowDownCircle className="w-4 h-4" />
                                                         İade (Giriş)
@@ -227,7 +354,7 @@ export default function MovementsPage() {
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center gap-3">
                                                     <div className="w-8 h-8 bg-zinc-900 rounded border border-zinc-800 flex items-center justify-center overflow-hidden flex-shrink-0">
-                                                        {t.image ? <img src={t.image} className="w-full h-full object-contain" /> : <Package className="w-4 h-4 text-zinc-700" />}
+                                                        {t.image ? <img src={t.image} className="w-full h-full object-contain" alt={t.productName} /> : <Package className="w-4 h-4 text-zinc-700" />}
                                                     </div>
                                                     <div>
                                                         <div className="font-medium text-white line-clamp-1">{t.productName}</div>
@@ -245,19 +372,19 @@ export default function MovementsPage() {
                                             </td>
                                             <td className="px-6 py-4 text-right text-zinc-300 font-mono text-xs">
                                                 {t.type === 'OUT' ? (
-                                                    currency(Number((t as any).unitPrice) || 0)
-                                                ) : (t.type === 'IN' && (t as any).kind === 'RETURN') ? (
-                                                    currency(Number((t as any).unitPrice) || 0)
+                                                    currency(Number(t.unitPrice) || 0)
+                                                ) : (t.type === 'IN' && t.kind === 'RETURN') ? (
+                                                    currency(Number(t.unitPrice) || 0)
                                                 ) : (
                                                     '-'
                                                 )}
                                             </td>
                                             <td className="px-6 py-4 text-right font-mono text-xs">
-                                                {t.type === 'OUT' || (t.type === 'IN' && (t as any).kind === 'RETURN') ? (
+                                                {t.type === 'OUT' || (t.type === 'IN' && t.kind === 'RETURN') ? (
                                                     <span className="font-bold text-blue-300">
                                                         {currency(
-                                                            Number((t as any).totalPrice) ||
-                                                            ((Number((t as any).unitPrice) || t.itemSellPrice || 0) * (Number(t.quantity) || 0))
+                                                            Number(t.totalPrice) ||
+                                                            ((Number(t.unitPrice) || t.itemSellPrice || 0) * (Number(t.quantity) || 0))
                                                         )}
                                                     </span>
                                                 ) : (
@@ -280,6 +407,24 @@ export default function MovementsPage() {
                                                         {t.channel}
                                                     </span>
                                                 ) : '-'}
+                                            </td>
+                                            <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <Button
+                                                        variant="outline"
+                                                        className="border-zinc-700 px-2"
+                                                        onClick={() => openEdit(t)}
+                                                    >
+                                                        <Pencil className="w-4 h-4" />
+                                                    </Button>
+                                                    <Button
+                                                        variant="destructive"
+                                                        className="px-2"
+                                                        onClick={() => setDeleteOneId(t.id)}
+                                                    >
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </Button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))
@@ -317,9 +462,9 @@ export default function MovementsPage() {
                                                     {t.channel && (
                                                         <p className="text-xs text-zinc-500">{t.channel}</p>
                                                     )}
-                                                    {(t as any).customerName && (
+                                                    {t.customerName && (
                                                         <p className="text-xs text-zinc-400">
-                                                            Cari: {(t as any).customerName}{(t as any).customerCode ? ` (${(t as any).customerCode})` : ''}
+                                                            Cari: {t.customerName}{t.customerCode ? ` (${t.customerCode})` : ''}
                                                         </p>
                                                     )}
                                                 </div>
@@ -357,7 +502,7 @@ export default function MovementsPage() {
                             <ArrowUpCircle className="w-5 h-5 text-amber-500 flex-shrink-0" />
                             <p className="text-xs text-amber-200">
                                 <strong>Önemli:</strong> Hareketler silindiğinde, ilgili ürünlerin stok miktarları otomatik olarak tersine düzeltilecektir.
-                                (Örn: Bir 'Satış' hareketini silerseniz, o ürünün stoğu geri artacaktır.)
+                                (Örn: Bir satış hareketini silerseniz, o ürünün stoğu geri artacaktır.)
                             </p>
                         </div>
                     </div>
@@ -368,6 +513,102 @@ export default function MovementsPage() {
                             onClick={handleBulkDelete}
                         >
                             Evet, Seçilenleri Sil ve Stokları Düzenle
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={!!deleteOneId} onOpenChange={(open) => !open && setDeleteOneId(null)}>
+                <DialogContent className="sm:max-w-md bg-zinc-950 border-zinc-800 p-6">
+                    <DialogHeader>
+                        <DialogTitle className="text-red-500 flex items-center gap-2">
+                            <Trash2 className="w-5 h-5" />
+                            Hareketi Sil
+                        </DialogTitle>
+                        <DialogDescription className="sr-only">Tek bir hareket silme onayı.</DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4 space-y-3">
+                        <p className="text-zinc-300">Bu hareketi silmek istediğinize emin misiniz?</p>
+                        <div className="bg-amber-500/10 border border-amber-500/50 p-3 rounded-lg flex gap-3">
+                            <ArrowUpCircle className="w-5 h-5 text-amber-500 flex-shrink-0" />
+                            <p className="text-xs text-amber-200">
+                                <strong>Önemli:</strong> Silince ilgili ürünün stok miktarı otomatik düzeltilecek.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex gap-2 justify-end pt-2">
+                        <Button variant="ghost" onClick={() => setDeleteOneId(null)}>Vazgeç</Button>
+                        <Button variant="destructive" onClick={deleteOne}>Evet, Sil</Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={editOpen} onOpenChange={(open) => !savingEdit && setEditOpen(open)}>
+                <DialogContent className="sm:max-w-md bg-zinc-950 border-zinc-800 p-6">
+                    <DialogHeader>
+                        <DialogTitle>Hareket Düzenle</DialogTitle>
+                        <DialogDescription>Adet, tarih, kanal, fiyat ve cari bilgisini güncelleyebilirsiniz.</DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-zinc-300">Tarih</label>
+                            <Input type="datetime-local" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-zinc-300">Adet</label>
+                            <Input type="number" min={1} value={editQty} onChange={(e) => setEditQty(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-zinc-300">Kanal</label>
+                            <select
+                                value={editChannel}
+                                onChange={(e) => setEditChannel(e.target.value)}
+                                className="h-10 px-3 rounded-md bg-zinc-900 border border-zinc-800 text-white focus:border-primary/50 focus:outline-none w-full"
+                            >
+                                <option value="">—</option>
+                                <option value="Pazaryeri">Pazaryeri</option>
+                                <option value="Perakende">Perakende</option>
+                                <option value="Toptan">Toptan</option>
+                            </select>
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-zinc-300">Cari</label>
+                            <select
+                                value={editCustomerId}
+                                onChange={(e) => setEditCustomerId(e.target.value)}
+                                className="h-10 px-3 rounded-md bg-zinc-900 border border-zinc-800 text-white focus:border-primary/50 focus:outline-none w-full"
+                            >
+                                <option value="">—</option>
+                                {customers.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                        {(c.customerCode ? `${c.customerCode} - ` : '') + c.name}
+                                    </option>
+                                ))}
+                            </select>
+                            {editChannel === 'Toptan' && !editCustomerId && (
+                                <p className="text-xs text-red-400">Toptan için cari zorunlu.</p>
+                            )}
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-zinc-300">Birim Fiyat</label>
+                            <Input
+                                inputMode="decimal"
+                                value={editUnitPrice}
+                                onChange={(e) => setEditUnitPrice(e.target.value)}
+                                placeholder="Örn: 200"
+                                disabled={!(editingTx?.type === 'OUT' || (editingTx?.type === 'IN' && editingTx?.kind === 'RETURN'))}
+                            />
+                            {!(editingTx?.type === 'OUT' || (editingTx?.type === 'IN' && editingTx?.kind === 'RETURN')) && (
+                                <p className="text-xs text-zinc-500">Sadece satış/iade hareketlerinde fiyat düzenlenir.</p>
+                            )}
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-2">
+                        <Button variant="outline" className="border-zinc-700" onClick={() => setEditOpen(false)} disabled={savingEdit}>
+                            İptal
+                        </Button>
+                        <Button className="bg-sky-600 hover:bg-sky-700 text-white" onClick={submitEdit} disabled={savingEdit}>
+                            Kaydet
                         </Button>
                     </div>
                 </DialogContent>
