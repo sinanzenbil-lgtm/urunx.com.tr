@@ -658,6 +658,7 @@ export async function getCustomerMovements(customerId: string) {
                     p.id,
                     p.date,
                     'PAYMENT' as type,
+                    NULL::text as "txKind",
                     0 as quantity,
                     NULL::text as channel,
                     0 as "unitPrice",
