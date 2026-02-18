@@ -6,9 +6,16 @@ export interface Customer {
     customerCode?: string;
     name: string;
     createdAt?: string;
+    // Yeni borç/alacak kurgusu
+    creditTotal?: number;      // toplam satış - satış iade (alacak doğuran)
+    collectionTotal?: number;  // toplam tahsilat
+    creditBalance?: number;    // kalan alacak = creditTotal - collectionTotal
+    debtTotal?: number;        // toplam alış (borç doğuran)
+    paymentTotal?: number;     // toplam ödeme
+    debtBalance?: number;      // kalan borç = debtTotal - paymentTotal
+    // Eski alanlar (geriye dönük): bazı ekranlar sadece var olmasını bekleyebilir
     salesTotal?: number;
-    paymentTotal?: number;
-    balance?: number; // satış - tahsilat
+    balance?: number;
 }
 
 export interface Transaction {
@@ -32,6 +39,7 @@ export interface CustomerPayment {
     customerId: string;
     date: string;
     amount: number;
+    direction?: 'IN' | 'OUT'; // IN=tahsilat, OUT=ödeme
     method: PaymentMethod;
     description?: string;
     createdAt?: string;

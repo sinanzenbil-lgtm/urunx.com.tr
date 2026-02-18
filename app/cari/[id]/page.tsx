@@ -42,6 +42,7 @@ type PaymentMovementRow = {
   id: string;
   date: string;
   type: 'PAYMENT';
+  direction: 'IN' | 'OUT';
   quantity: number;
   channel: null;
   unitPrice: number;
@@ -64,7 +65,8 @@ export default function CariDetailPage() {
   const setItems = useStockStore((s) => s.setItems);
 
   const [rows, setRows] = useState<MovementRow[]>([]);
-  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [moneyOpen, setMoneyOpen] = useState(false);
+  const [moneyDirection, setMoneyDirection] = useState<'IN' | 'OUT'>('IN'); // IN=tahsilat, OUT=ödeme
   const today = new Date().toISOString().split('T')[0];
   const [payDate, setPayDate] = useState(today);
   const [payAmount, setPayAmount] = useState('');
@@ -102,43 +104,62 @@ export default function CariDetailPage() {
   }, [customerId]);
 
   const totals = useMemo(() => {
-    const sales = rows.filter((r) => r.kind === 'TX' && r.type === 'OUT');
-    const payments = rows.filter((r) => r.kind === 'PAYMENT');
-    const qty = sales.reduce((acc, r) => acc + (Number(r.quantity) || 0), 0);
-    const salesAmount = sales.reduce((acc, r) => acc + (Number(r.totalPrice) || 0), 0);
-    const paymentAmount = payments.reduce((acc, r) => acc + (Number(r.totalPrice) || 0), 0);
-    const balance = salesAmount - paymentAmount;
-    return { qty, salesAmount, paymentAmount, balance };
+    const tx = rows.filter((r) => r.kind === 'TX');
+    const money = rows.filter((r) => r.kind === 'PAYMENT');
+
+    const salesQty = tx.filter((r) => r.type === 'OUT').reduce((acc, r) => acc + (Number(r.quantity) || 0), 0);
+
+    const creditTotal = tx.reduce((acc, r) => {
+      const amount = Number(r.totalPrice) || 0;
+      if (r.type === 'OUT') return acc + amount; // satış => alacak
+      if (r.type === 'IN' && r.txKind === 'RETURN') return acc - amount; // satış iadesi => alacak düşer
+      return acc;
+    }, 0);
+
+    const debtTotal = tx.reduce((acc, r) => {
+      const amount = Number(r.totalPrice) || 0;
+      if (r.type === 'IN' && r.txKind !== 'RETURN') return acc + amount; // alış => borç
+      return acc;
+    }, 0);
+
+    const collectionTotal = money.reduce((acc, r) => acc + (r.direction === 'IN' ? (Number(r.totalPrice) || 0) : 0), 0);
+    const paymentTotal = money.reduce((acc, r) => acc + (r.direction === 'OUT' ? (Number(r.totalPrice) || 0) : 0), 0);
+
+    const creditBalance = creditTotal - collectionTotal;
+    const debtBalance = debtTotal - paymentTotal;
+
+    return { salesQty, creditTotal, collectionTotal, creditBalance, debtTotal, paymentTotal, debtBalance };
   }, [rows]);
 
-  const submitPayment = async () => {
+  const submitMoney = async () => {
     const amount = Number(String(payAmount).replace(',', '.'));
     if (!Number.isFinite(amount) || amount <= 0) {
-      toast.error('Tahsilat tutarı geçerli olmalı');
+      toast.error(moneyDirection === 'IN' ? 'Tahsilat tutarı geçerli olmalı' : 'Ödeme tutarı geçerli olmalı');
       return;
     }
     setSaving(true);
-    const toastId = toast.loading('Tahsilat kaydediliyor...');
+    const toastId = toast.loading(moneyDirection === 'IN' ? 'Tahsilat kaydediliyor...' : 'Ödeme kaydediliyor...');
     try {
       const isoDate = new Date(`${payDate}T12:00:00`).toISOString();
       const res = await dbActions.addCustomerPayment({
         customerId,
         date: isoDate,
         amount,
+        direction: moneyDirection,
         method: payMethod,
         description: payDesc.trim() || undefined,
       });
       if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
       const updated = await dbActions.getCustomerMovements(customerId);
       setRows(((updated as unknown as { rows?: MovementRow[] }).rows || []) as MovementRow[]);
-      toast.success('Tahsilat eklendi', { id: toastId });
-      setPaymentOpen(false);
+      toast.success(moneyDirection === 'IN' ? 'Tahsilat eklendi' : 'Ödeme eklendi', { id: toastId });
+      setMoneyOpen(false);
       setPayAmount('');
       setPayDesc('');
       setPayMethod('Banka');
       setPayDate(today);
     } catch (err) {
-      toast.error('Tahsilat eklenirken hata oluştu', { id: toastId });
+      toast.error(moneyDirection === 'IN' ? 'Tahsilat eklenirken hata oluştu' : 'Ödeme eklenirken hata oluştu', { id: toastId });
       console.error(err);
     } finally {
       setSaving(false);
@@ -260,10 +281,23 @@ export default function CariDetailPage() {
         <div className="flex items-center gap-2">
           <Button
             className="gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
-            onClick={() => setPaymentOpen(true)}
+            onClick={() => {
+              setMoneyDirection('IN');
+              setMoneyOpen(true);
+            }}
           >
             <PlusCircle className="w-5 h-5" />
             Tahsilat Ekle
+          </Button>
+          <Button
+            className="gap-2 bg-amber-600 hover:bg-amber-700 text-white"
+            onClick={() => {
+              setMoneyDirection('OUT');
+              setMoneyOpen(true);
+            }}
+          >
+            <PlusCircle className="w-5 h-5" />
+            Ödeme Ekle
           </Button>
           <Link href="/cari">
             <Button variant="outline" className="border-zinc-700 gap-2">
@@ -274,39 +308,53 @@ export default function CariDetailPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-6">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-zinc-400 uppercase tracking-wider">Toplam Satış Adedi</CardTitle>
+            <CardTitle className="text-sm text-zinc-400 uppercase tracking-wider">Satış Adedi</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-black text-white">{totals.qty}</div>
+            <div className="text-3xl font-black text-white">{totals.salesQty}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-zinc-400 uppercase tracking-wider">Toplam Satış Tutarı</CardTitle>
+            <CardTitle className="text-sm text-zinc-400 uppercase tracking-wider">Toplam Alacak</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-black text-blue-300">{currency(totals.salesAmount)}</div>
+            <div className="text-3xl font-black text-blue-300">{currency(totals.creditTotal)}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-zinc-400 uppercase tracking-wider">Toplam Tahsilat</CardTitle>
+            <CardTitle className="text-sm text-zinc-400 uppercase tracking-wider">Tahsilat</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-black text-emerald-300">{currency(totals.paymentAmount)}</div>
+            <div className="text-3xl font-black text-emerald-300">{currency(totals.collectionTotal)}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-zinc-400 uppercase tracking-wider">Bakiye (Borç/Alacak)</CardTitle>
+            <CardTitle className="text-sm text-zinc-400 uppercase tracking-wider">Kalan Alacak</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className={`text-3xl font-black ${totals.balance > 0 ? 'text-red-400' : totals.balance < 0 ? 'text-emerald-400' : 'text-zinc-300'}`}>
-              {totals.balance > 0 ? `Borç ${currency(totals.balance)}` : totals.balance < 0 ? `Alacak ${currency(Math.abs(totals.balance))}` : currency(0)}
-            </div>
+            <div className="text-3xl font-black text-zinc-200">{currency(totals.creditBalance)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-zinc-400 uppercase tracking-wider">Toplam Borç</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-black text-red-300">{currency(totals.debtTotal)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-zinc-400 uppercase tracking-wider">Kalan Borç</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-black text-zinc-200">{currency(totals.debtBalance)}</div>
           </CardContent>
         </Card>
       </div>
@@ -343,9 +391,15 @@ export default function CariDetailPage() {
                       </td>
                       <td className="px-6 py-4">
                         {r.kind === 'PAYMENT' ? (
-                          <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
-                            Tahsilat
-                          </span>
+                          r.direction === 'OUT' ? (
+                            <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-amber-500/10 text-amber-200 border border-amber-500/20">
+                              Ödeme
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                              Tahsilat
+                            </span>
+                          )
                         ) : (
                           <span
                             className={`inline-flex items-center px-2 py-1 rounded text-xs border ${
@@ -356,7 +410,7 @@ export default function CariDetailPage() {
                                   : 'bg-red-500/10 text-red-300 border-red-500/20'
                             }`}
                           >
-                            {r.type === 'IN' && r.txKind === 'RETURN' ? 'İade' : r.type === 'IN' ? 'Stok Giriş' : 'Satış'}
+                            {r.type === 'IN' && r.txKind === 'RETURN' ? 'İade' : r.type === 'IN' ? 'Alış' : 'Satış'}
                           </span>
                         )}
                       </td>
@@ -387,7 +441,11 @@ export default function CariDetailPage() {
                           <span className="text-zinc-600">-</span>
                         )}
                       </td>
-                      <td className={`px-6 py-4 text-right font-bold ${r.kind === 'PAYMENT' ? 'text-emerald-300' : 'text-blue-300'}`}>
+                      <td className={`px-6 py-4 text-right font-bold ${
+                        r.kind === 'PAYMENT'
+                          ? (r.direction === 'OUT' ? 'text-amber-200' : 'text-emerald-300')
+                          : 'text-blue-300'
+                      }`}>
                         {currency(Number(r.totalPrice) || 0)}
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -412,9 +470,15 @@ export default function CariDetailPage() {
       <Dialog open={editOpen} onOpenChange={(open) => !savingEdit && setEditOpen(open)}>
         <DialogContent className="sm:max-w-md border-zinc-800">
           <DialogHeader>
-            <DialogTitle>{editingRow?.kind === 'PAYMENT' ? 'Tahsilat Düzenle' : 'Hareket Düzenle'}</DialogTitle>
+            <DialogTitle>
+              {editingRow?.kind === 'PAYMENT'
+                ? (editingRow.direction === 'OUT' ? 'Ödeme Düzenle' : 'Tahsilat Düzenle')
+                : 'Hareket Düzenle'}
+            </DialogTitle>
             <DialogDescription>
-              {editingRow?.kind === 'PAYMENT' ? 'Tahsilat bilgisini güncelleyin.' : 'Satış / giriş / iade hareketini güncelleyin.'}
+              {editingRow?.kind === 'PAYMENT'
+                ? (editingRow.direction === 'OUT' ? 'Ödeme bilgisini güncelleyin.' : 'Tahsilat bilgisini güncelleyin.')
+                : 'Satış / alış / iade hareketini güncelleyin.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -548,22 +612,24 @@ export default function CariDetailPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
+      <Dialog open={moneyOpen} onOpenChange={setMoneyOpen}>
         <DialogContent className="sm:max-w-md border-zinc-800">
           <DialogHeader>
-            <DialogTitle>Tahsilat Ekle</DialogTitle>
+            <DialogTitle>{moneyDirection === 'IN' ? 'Tahsilat Ekle' : 'Ödeme Ekle'}</DialogTitle>
             <DialogDescription>
-              Tahsilat tarihi, tutarı ve ödeme cinsini seçin. Açıklama opsiyonel.
+              {moneyDirection === 'IN'
+                ? 'Tahsilat tarihi, tutarı ve ödeme cinsini seçin. Açıklama opsiyonel.'
+                : 'Ödeme tarihi, tutarı ve ödeme cinsini seçin. Açıklama opsiyonel.'}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-zinc-300">Tahsilat Tarihi</label>
+              <label className="text-sm font-medium text-zinc-300">{moneyDirection === 'IN' ? 'Tahsilat Tarihi' : 'Ödeme Tarihi'}</label>
               <Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-zinc-300">Tahsilat Tutarı</label>
+              <label className="text-sm font-medium text-zinc-300">{moneyDirection === 'IN' ? 'Tahsilat Tutarı' : 'Ödeme Tutarı'}</label>
               <Input
                 type="number"
                 min={0}
@@ -617,10 +683,10 @@ export default function CariDetailPage() {
           </div>
 
           <DialogFooter className="gap-2 sm:gap-0">
-            <Button variant="outline" className="border-zinc-700" onClick={() => setPaymentOpen(false)} disabled={saving}>
+            <Button variant="outline" className="border-zinc-700" onClick={() => setMoneyOpen(false)} disabled={saving}>
               İptal
             </Button>
-            <Button className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={submitPayment} disabled={saving}>
+            <Button className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={submitMoney} disabled={saving}>
               <PlusCircle className="w-4 h-4 mr-2" />
               Ekle
             </Button>

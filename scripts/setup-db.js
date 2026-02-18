@@ -30,6 +30,7 @@ async function setup() {
         customer_id TEXT REFERENCES customers(id) ON DELETE CASCADE,
         date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         amount DECIMAL NOT NULL DEFAULT 0,
+        direction TEXT NOT NULL DEFAULT 'IN',
         method TEXT NOT NULL,
         description TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -76,6 +77,7 @@ async function setup() {
     `;
 
         // Backward-compatible schema upgrades
+        await sql`ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'IN';`;
         await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS unit_price DECIMAL DEFAULT 0;`;
         await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS total_price DECIMAL DEFAULT 0;`;
         await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS customer_id TEXT;`;

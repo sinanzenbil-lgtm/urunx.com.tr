@@ -104,6 +104,11 @@ async function ensureItemsSchema() {
     await sql`ALTER TABLE items ALTER COLUMN barcode DROP NOT NULL;`;
 }
 
+async function ensureCustomerPaymentsSchema() {
+    // Backward compatible: older DBs might not have direction column.
+    await sql`ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'IN';`;
+}
+
 export async function addItem(item: StockItem) {
     try {
         await ensureItemsSchema();
@@ -478,6 +483,7 @@ export async function updateCustomerPayment(
     }
 ) {
     try {
+        await ensureCustomerPaymentsSchema();
         const id = (paymentId || '').trim();
         if (!id) return { success: false, error: 'paymentId is required' };
 
@@ -527,6 +533,7 @@ export async function updateCustomerPayment(
 
 export async function removeCustomerPayments(paymentIds: string[]) {
     try {
+        await ensureCustomerPaymentsSchema();
         if (!paymentIds?.length) return { success: true };
         const rows = await sql`
             SELECT id, customer_id
@@ -550,23 +557,37 @@ export async function removeCustomerPayments(paymentIds: string[]) {
 
 export async function getCustomers() {
     try {
+        await ensureCustomerPaymentsSchema();
         const customers = await sql`
-            WITH sales AS (
+            WITH tx AS (
                 SELECT
                     customer_id,
                     SUM(
                         CASE
+                            -- Satış => Alacak
                             WHEN type = 'OUT' THEN COALESCE(NULLIF(total_price, 0), NULLIF(unit_price, 0) * quantity, 0)
+                            -- Satış iadesi (giriş) => Alacağı düşer
                             WHEN type = 'IN' AND kind = 'RETURN' THEN -COALESCE(NULLIF(total_price, 0), NULLIF(unit_price, 0) * quantity, 0)
                             ELSE 0
                         END
-                    ) AS sales_total
+                    ) AS credit_total,
+                    SUM(
+                        CASE
+                            -- Alış/Stok giriş => Borç
+                            WHEN type = 'IN' AND COALESCE(kind, 'NORMAL') <> 'RETURN'
+                                THEN COALESCE(NULLIF(total_price, 0), NULLIF(unit_price, 0) * quantity, 0)
+                            ELSE 0
+                        END
+                    ) AS debt_total
                 FROM transactions
                 WHERE customer_id IS NOT NULL
                 GROUP BY customer_id
             ),
-            payments AS (
-                SELECT customer_id, SUM(amount) AS payment_total
+            money AS (
+                SELECT
+                    customer_id,
+                    SUM(CASE WHEN COALESCE(direction, 'IN') = 'IN' THEN amount ELSE 0 END) AS collection_total,
+                    SUM(CASE WHEN COALESCE(direction, 'IN') = 'OUT' THEN amount ELSE 0 END) AS payment_total
                 FROM customer_payments
                 GROUP BY customer_id
             )
@@ -575,21 +596,36 @@ export async function getCustomers() {
                 c.customer_code as "customerCode",
                 c.name,
                 c.created_at as "createdAt",
-                COALESCE(s.sales_total, 0) as "salesTotal",
-                COALESCE(p.payment_total, 0) as "paymentTotal",
-                (COALESCE(s.sales_total, 0) - COALESCE(p.payment_total, 0)) as "balance"
+                COALESCE(t.credit_total, 0) as "creditTotal",
+                COALESCE(t.debt_total, 0) as "debtTotal",
+                COALESCE(m.collection_total, 0) as "collectionTotal",
+                COALESCE(m.payment_total, 0) as "paymentTotal",
+                (COALESCE(t.credit_total, 0) - COALESCE(m.collection_total, 0)) as "creditBalance",
+                (COALESCE(t.debt_total, 0) - COALESCE(m.payment_total, 0)) as "debtBalance"
             FROM customers c
-            LEFT JOIN sales s ON s.customer_id = c.id
-            LEFT JOIN payments p ON p.customer_id = c.id
+            LEFT JOIN tx t ON t.customer_id = c.id
+            LEFT JOIN money m ON m.customer_id = c.id
             ORDER BY COALESCE(NULLIF(c.customer_code, ''), c.name) ASC;
         `;
 
-        const rows = customers as unknown as Array<{ salesTotal: unknown; paymentTotal: unknown; balance: unknown } & Customer>;
+        const rows = customers as unknown as Array<
+            Customer & {
+                creditTotal: unknown;
+                debtTotal: unknown;
+                collectionTotal: unknown;
+                paymentTotal: unknown;
+                creditBalance: unknown;
+                debtBalance: unknown;
+            }
+        >;
         return rows.map((c) => ({
             ...c,
-            salesTotal: Number(c.salesTotal) || 0,
+            creditTotal: Number(c.creditTotal) || 0,
+            debtTotal: Number(c.debtTotal) || 0,
+            collectionTotal: Number(c.collectionTotal) || 0,
             paymentTotal: Number(c.paymentTotal) || 0,
-            balance: Number(c.balance) || 0,
+            creditBalance: Number(c.creditBalance) || 0,
+            debtBalance: Number(c.debtBalance) || 0,
         })) as unknown as Customer[];
     } catch (error) {
         console.error('Error fetching customers:', error);
@@ -627,6 +663,7 @@ export async function addCustomer(payload: { customerCode?: string; name: string
 
 export async function getCustomerMovements(customerId: string) {
     try {
+        await ensureCustomerPaymentsSchema();
         const rows = await sql`
             (
                 SELECT 
@@ -639,6 +676,7 @@ export async function getCustomerMovements(customerId: string) {
                     t.channel,
                     t.unit_price as "unitPrice",
                     t.total_price as "totalPrice",
+                    NULL::text as direction,
                     NULL::text as method,
                     NULL::text as description,
                     i.id as "itemId",
@@ -663,6 +701,7 @@ export async function getCustomerMovements(customerId: string) {
                     NULL::text as channel,
                     0 as "unitPrice",
                     p.amount as "totalPrice",
+                    COALESCE(p.direction, 'IN') as direction,
                     p.method as method,
                     p.description as description,
                     NULL::text as "itemId",
@@ -687,12 +726,15 @@ export async function addCustomerPayment(payload: {
     customerId: string;
     date: string;
     amount: number;
+    direction?: 'IN' | 'OUT';
     method: PaymentMethod;
     description?: string;
 }) {
     try {
+        await ensureCustomerPaymentsSchema();
         const customerId = (payload.customerId || '').trim();
         const amount = Number(payload.amount) || 0;
+        const direction = (payload.direction || 'IN') as 'IN' | 'OUT';
         const method = payload.method;
         const date = payload.date || new Date().toISOString();
         const description = (payload.description || '').trim() || null;
@@ -703,8 +745,8 @@ export async function addCustomerPayment(payload: {
 
         const id = crypto.randomUUID();
         await sql`
-            INSERT INTO customer_payments (id, customer_id, date, amount, method, description)
-            VALUES (${id}, ${customerId}, ${date}, ${amount}, ${method}, ${description});
+            INSERT INTO customer_payments (id, customer_id, date, amount, direction, method, description)
+            VALUES (${id}, ${customerId}, ${date}, ${amount}, ${direction}, ${method}, ${description});
         `;
         revalidatePath('/cari');
         revalidatePath(`/cari/${customerId}`);

@@ -162,10 +162,10 @@ export default function CariListPage() {
                       <td className="px-6 py-4 font-mono text-zinc-300">{c.customerCode || '-'}</td>
                       <td className="px-6 py-4 font-medium text-white">{c.name}</td>
                       <td className="px-6 py-4 text-right font-bold text-red-400">
-                        {c.balance && c.balance > 0 ? currency(c.balance) : currency(0)}
+                        {currency(Number(c.debtBalance) || 0)}
                       </td>
                       <td className="px-6 py-4 text-right font-bold text-emerald-400">
-                        {c.balance && c.balance < 0 ? currency(Math.abs(c.balance)) : currency(0)}
+                        {currency(Number(c.creditBalance) || 0)}
                       </td>
                       <td className="px-6 py-4 text-right">
                         <Button
