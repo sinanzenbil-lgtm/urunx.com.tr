@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useStockStore } from '@/lib/store';
+import { canAccessPath, firstAllowedPath } from '@/lib/route-access';
 
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
     const router = useRouter();
     const pathname = usePathname();
     const isAuthenticated = useStockStore((state) => state.isAuthenticated);
+    const user = useStockStore((state) => state.user);
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
@@ -26,12 +28,19 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
         }
     }, [isAuthenticated, pathname, router, mounted]);
 
-    // Prevent flashing of content before redirect check
+    useEffect(() => {
+        if (!mounted || !isAuthenticated || !user) return;
+        const isAuthPage = pathname === '/login' || pathname === '/register';
+        if (isAuthPage) return;
+        if (!canAccessPath(user, pathname)) {
+            router.replace(firstAllowedPath(user));
+        }
+    }, [mounted, isAuthenticated, user, pathname, router]);
+
     if (!mounted) {
-        return null; // Or a loading spinner
+        return null;
     }
 
-    // Don't render children if not auth and not on auth page to prevent flash
     const isAuthPage = pathname === '/login' || pathname === '/register';
     if (!isAuthenticated && !isAuthPage) {
         return null;

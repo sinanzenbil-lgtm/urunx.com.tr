@@ -1,23 +1,28 @@
 'use client';
 
+import Link from 'next/link';
 import { useStockStore } from '@/lib/store';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Package, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+
+type BrandSummary = {
+  name: string;
+  productCount: number;
+  totalQuantity: number;
+  totalBuyValue: number;
+  totalSellValue: number;
+};
 
 export default function Home() {
   const items = useStockStore((state) => state.items);
   const dbSyncStatus = useStockStore((state) => state.dbSyncStatus);
-  const [mounted, setMounted] = useState(false);
+  const [movementItemId, setMovementItemId] = useState<string | null>(null);
   const yearStart = `${new Date().getFullYear()}-01-01`;
   const today = new Date().toISOString().split('T')[0];
   const [salesDates, setSalesDates] = useState({ start: yearStart, end: today });
-
-  // Hydration fix for persistent store
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   const totalItems = items.length;
   const totalQuantity = items.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
@@ -36,15 +41,73 @@ export default function Home() {
     return acc + (price * qty);
   }, 0);
 
-  // Get recent transactions (flattened)
-  const recentTransactions = items
-    .flatMap(item => item.transactions.map(t => ({ ...t, itemName: item.name, itemImage: item.image })))
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 5);
+  const toDayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const capitalizeTr = (s: string) => s.charAt(0).toLocaleUpperCase('tr-TR') + s.slice(1);
+
+  // Flatten recent transactions for dashboard cards
+  const recentTransactions = useMemo(
+    () =>
+      items
+        .flatMap((item) =>
+          item.transactions.map((t) => ({
+            ...t,
+            itemId: item.id,
+            itemName: item.name,
+            itemImage: item.image,
+          }))
+        )
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
+    [items]
+  );
+
+  const groupedRecentTransactions = useMemo(() => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const daySlots = [0, 1, 2].map((offset) => {
+      const d = new Date(startOfToday);
+      d.setDate(d.getDate() - offset);
+      return {
+        key: toDayKey(d),
+        date: d,
+        relative: offset === 0 ? 'bugün' : offset === 1 ? 'dün' : 'evvel gün',
+      };
+    });
+
+    const groups = daySlots.reduce((acc, slot) => {
+      acc[slot.key] = [];
+      return acc;
+    }, {} as Record<string, typeof recentTransactions>);
+
+    recentTransactions.forEach((t) => {
+      const key = toDayKey(new Date(t.date));
+      if (groups[key]) groups[key].push(t);
+    });
+
+    return daySlots
+      .map((slot) => {
+        const weekday = capitalizeTr(slot.date.toLocaleDateString('tr-TR', { weekday: 'long' }));
+        return {
+          key: slot.key,
+          title: `${weekday} (${slot.relative})`,
+          items: groups[slot.key] || [],
+        };
+      })
+      .filter((g) => g.items.length > 0);
+  }, [recentTransactions]);
+
+  const movementItem = useMemo(() => {
+    if (!movementItemId) return null;
+    return items.find((i) => i.id === movementItemId) || null;
+  }, [items, movementItemId]);
+
+  const movementRows = useMemo(() => {
+    if (!movementItem) return [];
+    return [...movementItem.transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [movementItem]);
 
   // Brand-based summary calculation
   const brandSummaries = Object.values(
-    items.reduce((acc, item) => {
+    items.reduce<Record<string, BrandSummary>>((acc, item) => {
       const brand = item.brand || 'Markasız';
       if (!acc[brand]) {
         acc[brand] = {
@@ -60,7 +123,7 @@ export default function Home() {
       acc[brand].totalBuyValue += (Number(item.buyPrice) || 0) * (Number(item.quantity) || 0);
       acc[brand].totalSellValue += (Number(item.sellPrice) || 0) * (Number(item.quantity) || 0);
       return acc;
-    }, {} as Record<string, any>)
+    }, {})
   ).sort((a, b) => b.productCount - a.productCount);
 
   const salesSummary = useMemo(() => {
@@ -114,7 +177,7 @@ export default function Home() {
     salesSummary.Pazaryeri.sellTotal + salesSummary.Perakende.sellTotal + salesSummary.Toptan.sellTotal;
 
   // Avoid showing stale localStorage numbers before DB sync finishes.
-  if (!mounted || dbSyncStatus !== 'synced') {
+  if (dbSyncStatus !== 'synced') {
     return (
       <div className="space-y-6 animate-enter">
         <div className="flex items-center justify-between">
@@ -204,21 +267,42 @@ export default function Home() {
             <CardTitle>Son Hareketler</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
-              {recentTransactions.length === 0 ? (
-                <p className="text-sm text-zinc-500">Henüz bir hareket yok.</p>
+            <div className="max-h-[440px] overflow-y-auto pr-1 space-y-4">
+              {groupedRecentTransactions.length === 0 ? (
+                <p className="text-sm text-zinc-500">Son 3 günde hareket yok.</p>
               ) : (
-                recentTransactions.map((t, i) => (
-                  <div key={i} className="flex items-center justify-between border-b border-white/5 last:border-0 pb-2 last:pb-0">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-2 h-2 rounded-full ${t.type === 'IN' ? 'bg-green-500' : 'bg-red-500'}`} />
-                      <div>
-                        <p className="text-sm font-medium leading-none">{t.itemName}</p>
-                        <p className="text-xs text-zinc-500">{new Date(t.date).toLocaleString('tr-TR')}</p>
-                      </div>
+                groupedRecentTransactions.map((group) => (
+                  <div key={group.key} className="space-y-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400 sticky top-0 bg-zinc-900/80 backdrop-blur py-1 px-1 rounded">
+                      {group.title}
                     </div>
-                    <div className={`font-bold ${t.type === 'IN' ? 'text-green-500' : 'text-red-500'}`}>
-                      {t.type === 'IN' ? '+' : '-'}{t.quantity}
+                    <div className="space-y-2">
+                      {group.items.map((t) => (
+                        <div key={`${t.itemId}-${t.id}`} className="flex items-center justify-between border-b border-white/5 last:border-0 pb-2 last:pb-0">
+                          <div className="flex items-start gap-3 min-w-0">
+                            <div className={`w-2 h-2 rounded-full mt-1.5 ${t.type === 'IN' ? 'bg-green-500' : 'bg-red-500'}`} />
+                            <div className="min-w-0">
+                              <button
+                                type="button"
+                                onClick={() => setMovementItemId(t.itemId)}
+                                className="text-sm font-medium leading-none text-left text-white hover:underline underline-offset-4 line-clamp-1"
+                              >
+                                {t.itemName}
+                              </button>
+                              <p className="text-[11px] text-zinc-500 mt-1">
+                                {new Date(t.date).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                                {t.channel ? ` • ${t.channel}` : ''}
+                                {t.channel === 'Toptan' && (t.customerName || t.customerCode)
+                                  ? ` • ${t.customerName || t.customerCode}`
+                                  : ''}
+                              </p>
+                            </div>
+                          </div>
+                          <div className={`font-bold text-sm ${t.type === 'IN' ? 'text-green-500' : 'text-red-500'}`}>
+                            {t.type === 'IN' ? '+' : '-'}{t.quantity}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))
@@ -226,6 +310,48 @@ export default function Home() {
             </div>
           </CardContent>
         </Card>
+
+        <Dialog open={!!movementItemId} onOpenChange={(open) => !open && setMovementItemId(null)}>
+          <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 p-6">
+            {movementItem && (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Ürün Hareketliliği</DialogTitle>
+                  <DialogDescription>
+                    {movementItem.name} için son hareketler
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="mt-2 space-y-3 max-h-[60vh] overflow-auto">
+                  {movementRows.length === 0 ? (
+                    <p className="text-sm text-zinc-500">Bu ürün için hareket bulunamadı.</p>
+                  ) : (
+                    movementRows.map((t) => (
+                      <div key={t.id} className="flex items-center justify-between border-b border-white/5 pb-2 last:border-0">
+                        <div>
+                          <p className="text-sm font-medium text-white">
+                            {t.type === 'IN' && t.kind === 'RETURN' ? 'İade' : t.type === 'IN' ? 'Giriş' : 'Çıkış'} • {t.quantity} adet
+                          </p>
+                          <p className="text-xs text-zinc-500">{new Date(t.date).toLocaleString('tr-TR')}</p>
+                          {t.channel ? (
+                            <p className="text-[11px] text-zinc-500">
+                              {t.channel}
+                              {t.channel === 'Toptan' && (t.customerName || t.customerCode)
+                                ? ` • ${t.customerName || t.customerCode}`
+                                : ''}
+                            </p>
+                          ) : null}
+                        </div>
+                        <span className={`text-xs font-bold px-2 py-1 rounded-full ${t.type === 'IN' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                          {t.type === 'IN' ? '+' : '-'}{t.quantity}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
 
         {/* Brand Summary Table */}
         <Card className="md:col-span-2">
@@ -254,7 +380,15 @@ export default function Home() {
                   ) : (
                     brandSummaries.map((brand) => (
                       <tr key={brand.name} className="hover:bg-zinc-900/50 transition-colors">
-                        <td className="px-4 py-3 font-medium text-white">{brand.name}</td>
+                        <td className="px-4 py-3 font-medium text-white">
+                          <Link
+                            href={{ pathname: '/urunler', query: { marka: brand.name } }}
+                            className="hover:underline underline-offset-4"
+                            title={`${brand.name} ürünlerini görüntüle`}
+                          >
+                            {brand.name}
+                          </Link>
+                        </td>
                         <td className="px-4 py-3 text-center text-zinc-400">{brand.productCount}</td>
                         <td className="px-4 py-3 text-center">
                           <span className="px-2 py-1 rounded-full bg-zinc-800 text-zinc-300 font-bold border border-zinc-700">

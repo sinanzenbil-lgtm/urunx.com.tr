@@ -19,10 +19,14 @@ async function setup() {
         id TEXT PRIMARY KEY,
         customer_code TEXT,
         name TEXT NOT NULL,
+        opening_balance DECIMAL NOT NULL DEFAULT 0,
+        opening_balance_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '2000-01-01T00:00:00.000Z',
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `;
         await sql`CREATE UNIQUE INDEX IF NOT EXISTS customers_customer_code_key ON customers(customer_code) WHERE customer_code IS NOT NULL;`;
+        await sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance DECIMAL NOT NULL DEFAULT 0;`;
+        await sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '2000-01-01T00:00:00.000Z';`;
 
         await sql`
       CREATE TABLE IF NOT EXISTS customer_payments (
@@ -87,6 +91,21 @@ async function setup() {
           ADD CONSTRAINT transactions_customer_id_fkey
           FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL;
         EXCEPTION WHEN duplicate_object THEN NULL; END $$;`;
+
+        await sql`
+            CREATE TABLE IF NOT EXISTS members (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                first_name TEXT NOT NULL DEFAULT '',
+                last_name TEXT NOT NULL DEFAULT '',
+                company_name TEXT NOT NULL DEFAULT '',
+                menu_routes JSONB NOT NULL DEFAULT '[]'::jsonb,
+                sales_perakende BOOLEAN NOT NULL DEFAULT true,
+                sales_toptan BOOLEAN NOT NULL DEFAULT true,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        `;
 
         console.log('Tables created successfully!');
     } catch (error) {

@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { ArrowLeft, Building2, Package, PlusCircle, Landmark, Banknote, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeft, Building2, FileDown, Package, PlusCircle, Landmark, Banknote, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import * as dbActions from '@/lib/actions';
 import { useStockStore } from '@/lib/store';
 
@@ -57,7 +57,27 @@ type PaymentMovementRow = {
   brand: null;
 };
 
-type MovementRow = TxMovementRow | PaymentMovementRow;
+type OpeningMovementRow = {
+  kind: 'OPENING';
+  id: string;
+  date: string;
+  type: 'OPENING';
+  direction: 'IN' | 'OUT';
+  quantity: number;
+  channel: null;
+  unitPrice: number;
+  totalPrice: number;
+  method: 'Açılış Bakiyesi';
+  description: string | null;
+  itemId: null;
+  itemName: null;
+  barcode: null;
+  stockCode: null;
+  image: null;
+  brand: null;
+};
+
+type MovementRow = TxMovementRow | PaymentMovementRow | OpeningMovementRow;
 
 export default function CariDetailPage() {
   const params = useParams<{ id: string }>();
@@ -104,8 +124,9 @@ export default function CariDetailPage() {
   }, [customerId]);
 
   const totals = useMemo(() => {
-    const tx = rows.filter((r) => r.kind === 'TX');
-    const money = rows.filter((r) => r.kind === 'PAYMENT');
+    const tx = rows.filter((r): r is TxMovementRow => r.kind === 'TX');
+    const money = rows.filter((r): r is PaymentMovementRow => r.kind === 'PAYMENT');
+    const opening = rows.filter((r): r is OpeningMovementRow => r.kind === 'OPENING');
 
     const salesQty = tx.filter((r) => r.type === 'OUT').reduce((acc, r) => acc + (Number(r.quantity) || 0), 0);
 
@@ -121,14 +142,19 @@ export default function CariDetailPage() {
       if (r.type === 'IN' && r.txKind !== 'RETURN') return acc + amount; // alış => borç
       return acc;
     }, 0);
+    const openingCreditTotal = opening.reduce((acc, r) => acc + (r.direction === 'IN' ? Number(r.totalPrice) || 0 : 0), 0);
+    const openingDebtTotal = opening.reduce((acc, r) => acc + (r.direction === 'OUT' ? Number(r.totalPrice) || 0 : 0), 0);
 
     const collectionTotal = money.reduce((acc, r) => acc + (r.direction === 'IN' ? (Number(r.totalPrice) || 0) : 0), 0);
     const paymentTotal = money.reduce((acc, r) => acc + (r.direction === 'OUT' ? (Number(r.totalPrice) || 0) : 0), 0);
 
-    const creditBalance = creditTotal - collectionTotal;
-    const debtBalance = debtTotal - paymentTotal;
+    const totalCredit = creditTotal + openingCreditTotal;
+    const totalDebt = debtTotal + openingDebtTotal;
 
-    return { salesQty, creditTotal, collectionTotal, creditBalance, debtTotal, paymentTotal, debtBalance };
+    const creditBalance = totalCredit - collectionTotal;
+    const debtBalance = totalDebt - paymentTotal;
+
+    return { salesQty, creditTotal: totalCredit, collectionTotal, creditBalance, debtTotal: totalDebt, paymentTotal, debtBalance };
   }, [rows]);
 
   const submitMoney = async () => {
@@ -174,6 +200,7 @@ export default function CariDetailPage() {
   };
 
   const openEdit = (r: MovementRow) => {
+    if (r.kind === 'OPENING') return;
     setEditingRow(r);
     setEditDate(toLocalInput(r.date));
     if (r.kind === 'TX') {
@@ -214,7 +241,7 @@ export default function CariDetailPage() {
           customerId, // keep same customer
         });
         if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
-      } else {
+      } else if (editingRow.kind === 'PAYMENT') {
         const amount = Number(String(editAmount).replace(',', '.'));
         if (!Number.isFinite(amount) || amount <= 0) {
           toast.error('Tutar geçerli olmalı', { id: toastId });
@@ -227,13 +254,15 @@ export default function CariDetailPage() {
           description: editDesc.trim() || '',
         });
         if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
+      } else {
+        toast.error('Açılış bakiyesi satırı düzenlenemez', { id: toastId });
+        return;
       }
       await refresh();
       toast.success('Güncellendi', { id: toastId });
       setEditOpen(false);
       setEditingRow(null);
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error(e);
       toast.error('Güncellenemedi', { id: toastId });
     } finally {
@@ -242,6 +271,7 @@ export default function CariDetailPage() {
   };
 
   const openDelete = (r: MovementRow) => {
+    if (r.kind === 'OPENING') return;
     setEditingRow(r);
     setDeleteOpen(true);
   };
@@ -253,16 +283,18 @@ export default function CariDetailPage() {
       if (editingRow.kind === 'TX') {
         const res = await dbActions.removeTransactions([editingRow.id]);
         if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
-      } else {
+      } else if (editingRow.kind === 'PAYMENT') {
         const res = await dbActions.removeCustomerPayments([editingRow.id]);
         if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
+      } else {
+        toast.error('Açılış bakiyesi satırı silinemez', { id: toastId });
+        return;
       }
       await refresh();
       toast.success('Silindi', { id: toastId });
       setDeleteOpen(false);
       setEditingRow(null);
     } catch (e) {
-      // eslint-disable-next-line no-console
       console.error(e);
       toast.error('Silinemedi', { id: toastId });
     }
@@ -299,6 +331,12 @@ export default function CariDetailPage() {
             <PlusCircle className="w-5 h-5" />
             Ödeme Ekle
           </Button>
+          <Link href={`/cari/${customerId}/ekstre?indir=1`} target="_blank">
+            <Button className="gap-2 bg-sky-600 hover:bg-sky-700 text-white">
+              <FileDown className="w-4 h-4" />
+              PDF İndir
+            </Button>
+          </Link>
           <Link href="/cari">
             <Button variant="outline" className="border-zinc-700 gap-2">
               <ArrowLeft className="w-4 h-4" />
@@ -390,7 +428,17 @@ export default function CariDetailPage() {
                         {new Date(r.date).toLocaleString('tr-TR')}
                       </td>
                       <td className="px-6 py-4">
-                        {r.kind === 'PAYMENT' ? (
+                        {r.kind === 'OPENING' ? (
+                          r.direction === 'OUT' ? (
+                            <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-rose-500/10 text-rose-300 border border-rose-500/20">
+                              Açılış Borç
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                              Açılış Alacak
+                            </span>
+                          )
+                        ) : r.kind === 'PAYMENT' ? (
                           r.direction === 'OUT' ? (
                             <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-amber-500/10 text-amber-200 border border-amber-500/20">
                               Ödeme
@@ -415,7 +463,12 @@ export default function CariDetailPage() {
                         )}
                       </td>
                       <td className="px-6 py-4">
-                        {r.kind === 'PAYMENT' ? (
+                        {r.kind === 'OPENING' ? (
+                          <div className="text-sm">
+                            <div className="text-white font-medium">Açılış Bakiyesi</div>
+                            <div className="text-xs text-zinc-500">Sabit tarih: 01.01.2000</div>
+                          </div>
+                        ) : r.kind === 'PAYMENT' ? (
                           <div className="text-sm">
                             <div className="text-white font-medium">{r.method}</div>
                             {r.description ? <div className="text-xs text-zinc-500">{r.description}</div> : <div className="text-xs text-zinc-600">—</div>}
@@ -442,21 +495,27 @@ export default function CariDetailPage() {
                         )}
                       </td>
                       <td className={`px-6 py-4 text-right font-bold ${
-                        r.kind === 'PAYMENT'
+                        r.kind === 'OPENING'
+                          ? (r.direction === 'OUT' ? 'text-rose-300' : 'text-cyan-300')
+                          : r.kind === 'PAYMENT'
                           ? (r.direction === 'OUT' ? 'text-amber-200' : 'text-emerald-300')
                           : 'text-blue-300'
                       }`}>
                         {currency(Number(r.totalPrice) || 0)}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button variant="outline" className="border-zinc-700 px-2" onClick={() => openEdit(r)}>
-                            <Pencil className="w-4 h-4" />
-                          </Button>
-                          <Button variant="destructive" className="px-2" onClick={() => openDelete(r)}>
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
+                        {r.kind === 'OPENING' ? (
+                          <span className="text-xs text-zinc-600">Sabit</span>
+                        ) : (
+                          <div className="flex items-center justify-end gap-2">
+                            <Button variant="outline" className="border-zinc-700 px-2" onClick={() => openEdit(r)}>
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button variant="destructive" className="px-2" onClick={() => openDelete(r)}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -696,4 +755,3 @@ export default function CariDetailPage() {
     </div>
   );
 }
-

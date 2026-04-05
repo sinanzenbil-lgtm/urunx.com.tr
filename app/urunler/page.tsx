@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useStockStore } from '@/lib/store';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import ExcelImportModal from '@/components/excel-import-modal';
@@ -10,12 +11,19 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { StockItem } from '@/types';
-import { Package, Scan, Search, Edit, X, PlusCircle, MinusCircle, Trash2, Download, ArrowUp, ArrowDown, Copy } from 'lucide-react';
+import { Package, Scan, Search, Edit, X, PlusCircle, MinusCircle, Trash2, Download, ArrowUp, ArrowDown, Copy, Files } from 'lucide-react';
 import * as dbActions from '@/lib/actions';
 import { cn } from '@/lib/utils';
 import * as XLSX from 'xlsx';
 
+const formatPriceNoSymbol = (value: number) =>
+    new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+
 export default function ProductsPage() {
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const urlBrand = (searchParams.get('marka') || '').trim();
+    const editIdParam = (searchParams.get('duzenle') || '').trim();
     const items = useStockStore((state) => state.items);
     const updateItem = useStockStore((state) => state.updateItem);
     const removeItem = useStockStore((state) => state.removeItem);
@@ -27,10 +35,14 @@ export default function ProductsPage() {
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
+    const [copyDialogOpen, setCopyDialogOpen] = useState(false);
+    const [copyCountInput, setCopyCountInput] = useState('1');
     const [transactionModal, setTransactionModal] = useState<{ item: StockItem, type: 'IN' | 'OUT' } | null>(null);
     const [transactionsItem, setTransactionsItem] = useState<StockItem | null>(null);
     const [imageUrlInput, setImageUrlInput] = useState('');
-    const [selectedBrand, setSelectedBrand] = useState<string>('');
+    const [selectedBrandOverride, setSelectedBrandOverride] = useState<string | null>(null);
+    const [dismissedEditParam, setDismissedEditParam] = useState('');
+    const selectedBrand = selectedBrandOverride ?? urlBrand;
     type SortKey = 'name' | 'brand' | 'stockCode' | 'quantity' | 'buyPrice' | 'sellPrice';
     // Default: sort by product name (A-Z)
     const [sortBy, setSortBy] = useState<SortKey>('name');
@@ -42,11 +54,29 @@ export default function ProductsPage() {
         return () => clearTimeout(t);
     }, [searchInput]);
 
-    // Get unique brands from all items (marka listesi nadiren değişir)
-    const uniqueBrands = useMemo(
-        () => Array.from(new Set(items.map(item => item.brand).filter(Boolean))).sort(),
-        [items]
-    );
+    const editItemFromParam = useMemo(() => {
+        if (!editIdParam || dismissedEditParam === editIdParam) return null;
+        return items.find((item) => item.id === editIdParam) || null;
+    }, [editIdParam, dismissedEditParam, items]);
+
+    const activeEditingItem = editingItem ?? editItemFromParam;
+
+    // Markalar: toplam stok adedine göre çoktan aza; eşitse ada göre (tr)
+    const uniqueBrands = useMemo(() => {
+        const totals = new Map<string, number>();
+        for (const item of items) {
+            const b = (item.brand || '').trim();
+            if (!b) continue;
+            totals.set(b, (totals.get(b) || 0) + (Number(item.quantity) || 0));
+        }
+        return Array.from(totals.entries())
+            .sort((a, b) => {
+                const dq = b[1] - a[1];
+                if (dq !== 0) return dq;
+                return a[0].localeCompare(b[0], 'tr');
+            })
+            .map(([brand]) => brand);
+    }, [items]);
 
     const toTrLower = (s: string) => (s || '').toLocaleLowerCase('tr-TR');
     const filteredItems = useMemo(() => {
@@ -178,27 +208,33 @@ export default function ProductsPage() {
         }
     };
 
+    const updateEditingDraft = (patch: Partial<StockItem>) => {
+        if (!activeEditingItem) return;
+        setEditingItem({ ...activeEditingItem, ...patch });
+    };
+
     const handleUpdate = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!editingItem) return;
+        if (!activeEditingItem) return;
 
-        const result = await dbActions.updateItem(editingItem.id, editingItem);
+        const result = await dbActions.updateItem(activeEditingItem.id, activeEditingItem);
         if (result.success) {
-            updateItem(editingItem.id, editingItem);
+            updateItem(activeEditingItem.id, activeEditingItem);
             toast.success('Ürün güncellendi');
         } else {
             toast.error('Giriş yapılamadı / Kayıt hatası');
         }
         setEditingItem(null);
+        if (editIdParam) setDismissedEditParam(editIdParam);
     };
 
     const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!editingItem) return;
+        if (!activeEditingItem) return;
         const file = e.target.files?.[0];
         if (file) {
             const reader = new FileReader();
             reader.onloadend = () => {
-                setEditingItem({ ...editingItem, image: reader.result as string });
+                updateEditingDraft({ image: reader.result as string });
                 toast.success('Resim yüklendi');
             };
             reader.readAsDataURL(file);
@@ -206,16 +242,23 @@ export default function ProductsPage() {
     };
 
     const handlePasteFromClipboard = async () => {
-        if (!editingItem) return;
+        if (!activeEditingItem) return;
         try {
-            const items = await (navigator as any).clipboard.read();
-            for (const item of items) {
+            const clipboard = navigator.clipboard as Clipboard & {
+                read?: () => Promise<ClipboardItem[]>;
+            };
+            if (!clipboard.read) {
+                toast.error('Tarayıcı panodan resim okumayı desteklemiyor');
+                return;
+            }
+            const clipboardItems = await clipboard.read();
+            for (const item of clipboardItems) {
                 const types = item.types;
                 if (types.includes('image/png') || types.includes('image/jpeg') || types.includes('image/webp')) {
                     const blob = await item.getType(types[0]);
                     const reader = new FileReader();
                     reader.onloadend = () => {
-                        setEditingItem({ ...editingItem, image: reader.result as string });
+                        updateEditingDraft({ image: reader.result as string });
                         toast.success('Panodan resim yapıştırıldı');
                     };
                     reader.readAsDataURL(blob);
@@ -229,7 +272,7 @@ export default function ProductsPage() {
     };
 
     const handleLoadFromUrl = async () => {
-        if (!editingItem) return;
+        if (!activeEditingItem) return;
         if (!imageUrlInput) {
             toast.error('Lütfen bir URL girin');
             return;
@@ -239,7 +282,7 @@ export default function ProductsPage() {
             const blob = await res.blob();
             const reader = new FileReader();
             reader.onloadend = () => {
-                setEditingItem({ ...editingItem, image: reader.result as string });
+                updateEditingDraft({ image: reader.result as string });
                 toast.success('URL üzerinden resim yüklendi');
                 setImageUrlInput('');
             };
@@ -293,6 +336,19 @@ export default function ProductsPage() {
                         <p className="text-zinc-500">Kayıtlı tüm ürünler ({items.length})</p>
                     </div>
                     <div className="flex gap-2">
+                        {selectedIds.length === 1 && (
+                            <Button
+                                variant="secondary"
+                                onClick={() => {
+                                    setCopyCountInput('1');
+                                    setCopyDialogOpen(true);
+                                }}
+                                className="gap-2 animate-in fade-in slide-in-from-right-2 border-zinc-700 bg-zinc-800 text-white hover:bg-zinc-700"
+                            >
+                                <Files className="w-4 h-4" />
+                                Kopyala
+                            </Button>
+                        )}
                         {selectedIds.length > 0 && (
                             <Button
                                 variant="destructive"
@@ -312,7 +368,7 @@ export default function ProductsPage() {
                             <Download className="w-4 h-4" />
                             Excel İndir
                         </Button>
-                        <Link href="/giris?mode=new">
+                        <Link href="/urunler/yeni">
                             <Button className="gap-2 bg-green-600 hover:bg-green-700 text-white shadow-[0_0_15px_-3px_rgba(22,163,74,0.5)]">
                                 <PlusCircle className="w-5 h-5" />
                                 Yeni Ürün Ekle
@@ -335,7 +391,7 @@ export default function ProductsPage() {
                     <label className="text-sm font-medium text-zinc-400 whitespace-nowrap">Marka Filtresi:</label>
                     <select
                         value={selectedBrand}
-                        onChange={(e) => setSelectedBrand(e.target.value)}
+                        onChange={(e) => setSelectedBrandOverride(e.target.value)}
                         className="flex-1 h-10 px-3 rounded-md bg-zinc-900/50 border border-zinc-800 text-white focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50 transition-colors"
                     >
                         <option value="">Tüm Markalar ({items.length})</option>
@@ -349,7 +405,7 @@ export default function ProductsPage() {
                         <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setSelectedBrand('')}
+                            onClick={() => setSelectedBrandOverride('')}
                             className="text-zinc-400 hover:text-white"
                         >
                             <X className="w-4 h-4 mr-1" />
@@ -560,13 +616,11 @@ export default function ProductsPage() {
                                             <td className="px-4 py-2 text-right text-zinc-400">
                                                 %{item.vatRate || 0}
                                             </td>
-                                            <td className="px-4 py-3 text-right text-zinc-400">
-                                                {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(item.buyPrice) || 0)}
+                                            <td className="px-4 py-3 text-right font-bold text-white text-sm tabular-nums">
+                                                {formatPriceNoSymbol(Number(item.buyPrice) || 0)}
                                             </td>
-                                            <td className="px-4 py-3 text-right">
-                                                <div className="font-bold text-white text-sm">
-                                                    {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(item.sellPrice) || 0)}
-                                                </div>
+                                            <td className="px-4 py-3 text-right font-light text-zinc-400 text-sm tabular-nums">
+                                                {formatPriceNoSymbol(Number(item.sellPrice) || 0)}
                                             </td>
                                             <td className="px-4 py-3 text-right">
                                                 <div className="flex items-center justify-end gap-0.5">
@@ -716,9 +770,16 @@ export default function ProductsPage() {
                 </DialogContent>
             </Dialog>
 
-            <Dialog open={!!editingItem} onOpenChange={(open) => !open && setEditingItem(null)}>
+            <Dialog
+                open={!!activeEditingItem}
+                onOpenChange={(open) => {
+                    if (open) return;
+                    setEditingItem(null);
+                    if (editIdParam) setDismissedEditParam(editIdParam);
+                }}
+            >
                 <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 p-0 overflow-hidden">
-                    {editingItem && (
+                    {activeEditingItem && (
                         <div className="p-6">
                             <DialogHeader className="mb-4">
                                 <DialogTitle className="text-xl font-bold">Ürün Düzenle</DialogTitle>
@@ -730,10 +791,10 @@ export default function ProductsPage() {
                                 {/* Large image preview at the top */}
                                 <div className="mx-auto w-full max-w-md rounded-xl border border-zinc-800 bg-zinc-900/40 overflow-hidden">
                                     <div className="w-full h-44 sm:h-52 flex items-center justify-center">
-                                        {editingItem.image ? (
+                                        {activeEditingItem.image ? (
                                             <img
-                                                src={editingItem.image}
-                                                alt={`${editingItem.name} görseli`}
+                                                src={activeEditingItem.image}
+                                                alt={`${activeEditingItem.name} görseli`}
                                                 className="w-full h-full object-contain p-3"
                                             />
                                         ) : (
@@ -771,63 +832,63 @@ export default function ProductsPage() {
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">Ürün Adı</label>
                                     <Input
-                                        value={editingItem.name}
-                                        onChange={(e) => setEditingItem({ ...editingItem, name: e.target.value })}
+                                        value={activeEditingItem.name}
+                                        onChange={(e) => updateEditingDraft({ name: e.target.value })}
                                     />
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium">Barkod</label>
                                         <Input
-                                            value={editingItem.barcode}
-                                            onChange={(e) => setEditingItem({ ...editingItem, barcode: e.target.value })}
+                                            value={activeEditingItem.barcode}
+                                            onChange={(e) => updateEditingDraft({ barcode: e.target.value })}
                                             placeholder="Barkod"
                                         />
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium">Stok Kodu</label>
                                         <Input
-                                            value={editingItem.stockCode || ''}
-                                            onChange={(e) => setEditingItem({ ...editingItem, stockCode: e.target.value })}
+                                            value={activeEditingItem.stockCode || ''}
+                                            onChange={(e) => updateEditingDraft({ stockCode: e.target.value })}
                                             placeholder="Stok kodu"
                                         />
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium">Marka</label>
                                         <Input
-                                            value={editingItem.brand || ''}
-                                            onChange={(e) => setEditingItem({ ...editingItem, brand: e.target.value })}
+                                            value={activeEditingItem.brand || ''}
+                                            onChange={(e) => updateEditingDraft({ brand: e.target.value })}
                                         />
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium">Alış Fiyatı</label>
                                         <Input
                                             type="number"
-                                            value={editingItem.buyPrice}
-                                            onChange={(e) => setEditingItem({ ...editingItem, buyPrice: parseFloat(e.target.value) })}
+                                            value={activeEditingItem.buyPrice}
+                                            onChange={(e) => updateEditingDraft({ buyPrice: parseFloat(e.target.value) })}
                                         />
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium">Toptan Satış Fiyatı</label>
                                         <Input
                                             type="number"
-                                            value={editingItem.sellPrice}
-                                            onChange={(e) => setEditingItem({ ...editingItem, sellPrice: parseFloat(e.target.value) })}
+                                            value={activeEditingItem.sellPrice}
+                                            onChange={(e) => updateEditingDraft({ sellPrice: parseFloat(e.target.value) })}
                                         />
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium">Stok Adedi</label>
                                         <Input
                                             type="number"
-                                            value={editingItem.quantity}
-                                            onChange={(e) => setEditingItem({ ...editingItem, quantity: parseInt(e.target.value) })}
+                                            value={activeEditingItem.quantity}
+                                            onChange={(e) => updateEditingDraft({ quantity: parseInt(e.target.value) })}
                                         />
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium">KDV</label>
                                         <select
-                                            value={editingItem.vatRate}
-                                            onChange={(e) => setEditingItem({ ...editingItem, vatRate: parseFloat(e.target.value) })}
+                                            value={activeEditingItem.vatRate}
+                                            onChange={(e) => updateEditingDraft({ vatRate: parseFloat(e.target.value) })}
                                             className="w-full h-10 px-3 rounded-md bg-zinc-900 border border-zinc-800 focus:border-primary/50 focus:outline-none"
                                         >
                                             <option value={1}>%1</option>
@@ -837,7 +898,16 @@ export default function ProductsPage() {
                                     </div>
                                 </div>
                                 <div className="pt-4 flex justify-end gap-2">
-                                    <Button type="button" variant="ghost" onClick={() => setEditingItem(null)}>İptal</Button>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        onClick={() => {
+                                            setEditingItem(null);
+                                            if (editIdParam) setDismissedEditParam(editIdParam);
+                                        }}
+                                    >
+                                        İptal
+                                    </Button>
                                     <Button type="submit" className="bg-primary text-primary-foreground hover:bg-primary/90">Kaydet</Button>
                                 </div>
                             </form>
@@ -907,6 +977,48 @@ export default function ProductsPage() {
                             onClick={handleBulkDelete}
                         >
                             Evet, Tümünü Sil
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={copyDialogOpen} onOpenChange={setCopyDialogOpen}>
+                <DialogContent className="sm:max-w-md bg-zinc-950 border-zinc-800 p-6">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-white">
+                            <Files className="w-5 h-5" />
+                            Ürün kopyala
+                        </DialogTitle>
+                        <DialogDescription>
+                            Seçili ürün için kaç adet yeni kayıt oluşturulacak? (Varsayılan: 1)
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4 space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-zinc-300">Kopya adedi</label>
+                            <Input
+                                type="number"
+                                min={1}
+                                max={100}
+                                value={copyCountInput}
+                                onChange={(e) => setCopyCountInput(e.target.value)}
+                                className="text-center text-lg font-semibold h-12 bg-zinc-900 border-zinc-800"
+                            />
+                        </div>
+                    </div>
+                    <div className="flex gap-2 justify-end pt-2">
+                        <Button variant="ghost" onClick={() => setCopyDialogOpen(false)}>İptal</Button>
+                        <Button
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={() => {
+                                const n = Math.min(100, Math.max(1, parseInt(copyCountInput, 10) || 1));
+                                const id = selectedIds[0];
+                                if (!id) return;
+                                setCopyDialogOpen(false);
+                                router.push(`/urunler/kopyala?kaynak=${encodeURIComponent(id)}&adet=${n}`);
+                            }}
+                        >
+                            Kopyalama oluştur
                         </Button>
                     </div>
                 </DialogContent>

@@ -7,10 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription as DDesc, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Scan, Search, Package, Save, Trash2, PlusCircle, Users } from 'lucide-react';
+import { Scan, Search, Package, Save, Trash2, PlusCircle, X } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { Customer, StockItem } from '@/types';
 import * as dbActions from '@/lib/actions';
+import { cn } from '@/lib/utils';
 
 export default function EntryPage() {
   const storeItems = useStockStore((s) => s.items);
@@ -20,6 +21,8 @@ export default function EntryPage() {
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   const [newCustomerCode, setNewCustomerCode] = useState('');
   const [newCustomerName, setNewCustomerName] = useState('');
@@ -31,6 +34,7 @@ export default function EntryPage() {
   const [activeCartId, setActiveCartId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const customerComboRef = useRef<HTMLDivElement>(null);
 
   interface CartItem {
     id: string;
@@ -64,6 +68,32 @@ export default function EntryPage() {
     setCustomers(rows || []);
     return rows || [];
   };
+
+  const selectedCustomer = useMemo(() => {
+    if (!selectedCustomerId) return null;
+    return customers.find((c) => c.id === selectedCustomerId) || null;
+  }, [customers, selectedCustomerId]);
+
+  /** Cari arama: yazı yokken liste yok; yazınca eşleşenler (açılır liste) */
+  const customersForDropdown = useMemo(() => {
+    const q = customerQuery.trim().toLocaleLowerCase('tr-TR');
+    if (!q) return [];
+    return customers.filter((c) => {
+      const name = (c.name || '').toLocaleLowerCase('tr-TR');
+      const code = (c.customerCode || '').toLocaleLowerCase('tr-TR');
+      return name.includes(q) || code.includes(q);
+    });
+  }, [customers, customerQuery]);
+
+  useEffect(() => {
+    const handleDown = (e: MouseEvent) => {
+      if (customerComboRef.current && !customerComboRef.current.contains(e.target as Node)) {
+        setCustomerDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleDown);
+    return () => document.removeEventListener('mousedown', handleDown);
+  }, []);
 
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLocaleLowerCase('tr-TR');
@@ -163,6 +193,10 @@ export default function EntryPage() {
       const id = (res as any).id as string;
       await refreshCustomers();
       setSelectedCustomerId(id);
+      const code = newCustomerCode.trim();
+      const nm = newCustomerName.trim();
+      setCustomerQuery(code ? `${code} — ${nm}` : nm);
+      setCustomerDropdownOpen(false);
       toast.success('Cari eklendi ve seçildi', { id: toastId });
       setAddCustomerOpen(false);
       setNewCustomerCode('');
@@ -418,18 +452,86 @@ export default function EntryPage() {
                   Yeni Cari
                 </button>
               </div>
-              <select
-                value={selectedCustomerId}
-                onChange={(e) => setSelectedCustomerId(e.target.value)}
-                className="w-full h-12 px-3 rounded-md bg-zinc-950 border border-zinc-800 text-white focus:border-primary/50 focus:outline-none"
-              >
-                <option value="">Cari seçiniz...</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {(c.customerCode ? `${c.customerCode} - ` : '') + c.name}
-                  </option>
-                ))}
-              </select>
+              <div className="relative z-20" ref={customerComboRef}>
+                <Search className="absolute left-3 top-3 w-5 h-5 text-zinc-500 pointer-events-none" />
+                <Input
+                  value={customerQuery}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setCustomerQuery(v);
+                    setCustomerDropdownOpen(v.trim().length > 0);
+                  }}
+                  onFocus={() => {
+                    if (customerQuery.trim().length > 0) setCustomerDropdownOpen(true);
+                  }}
+                  placeholder="Cari isim veya kodu yazın..."
+                  className="pl-10 pr-10 h-12 bg-zinc-950 border-zinc-800"
+                  autoComplete="off"
+                />
+                {customerQuery && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCustomerQuery('');
+                      setSelectedCustomerId('');
+                      setCustomerDropdownOpen(false);
+                    }}
+                    className="absolute right-3 top-3 text-zinc-500 hover:text-white"
+                  >
+                    <X size={18} />
+                  </button>
+                )}
+
+                {customerDropdownOpen && customerQuery.trim().length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-md border border-zinc-800 bg-zinc-950 shadow-xl">
+                    {customersForDropdown.length === 0 ? (
+                      <div className="px-3 py-4 text-sm text-zinc-500 text-center">Cari bulunamadı.</div>
+                    ) : (
+                      customersForDropdown.map((c) => {
+                        const isSelected = c.id === selectedCustomerId;
+                        return (
+                          <button
+                            type="button"
+                            key={c.id}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => {
+                              setSelectedCustomerId(c.id);
+                              setCustomerQuery(c.customerCode ? `${c.customerCode} — ${c.name}` : c.name);
+                              setCustomerDropdownOpen(false);
+                            }}
+                            className={cn(
+                              'w-full text-left px-3 py-2.5 border-b border-zinc-800 last:border-b-0 transition-colors',
+                              isSelected ? 'bg-sky-600/15' : 'hover:bg-zinc-900'
+                            )}
+                          >
+                            <div className={cn('font-medium', isSelected ? 'text-sky-300' : 'text-white')}>{c.name}</div>
+                            <div className="text-xs text-zinc-500">{c.customerCode || '-'}</div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {selectedCustomerId && selectedCustomer ? (
+                <div className="flex items-center justify-between text-xs rounded-md border border-sky-700/40 bg-sky-500/10 px-3 py-2">
+                  <span className="text-sky-200">
+                    Seçili: {(selectedCustomer.customerCode ? `${selectedCustomer.customerCode} - ` : '') + selectedCustomer.name}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCustomerId('');
+                      setCustomerQuery('');
+                      setCustomerDropdownOpen(false);
+                    }}
+                    className="text-sky-300 hover:text-sky-200"
+                  >
+                    Temizle
+                  </button>
+                </div>
+              ) : null}
               {!selectedCustomerId && <div className="text-xs text-amber-300">Stok girişi kaydetmek için cari seçmelisiniz</div>}
             </div>
 

@@ -82,6 +82,37 @@ export async function setupDatabase() {
           FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL;
         EXCEPTION WHEN duplicate_object THEN NULL; END $$;`;
 
+        // Company settings table (logo / unvan / iletişim)
+        await sql`
+      CREATE TABLE IF NOT EXISTS company_settings (
+        id TEXT PRIMARY KEY,
+        company_name TEXT NOT NULL DEFAULT '',
+        trade_name TEXT NOT NULL DEFAULT '',
+        address TEXT NOT NULL DEFAULT '',
+        phone TEXT NOT NULL DEFAULT '',
+        email TEXT NOT NULL DEFAULT '',
+        logo TEXT,
+        monthly_interest_rate DECIMAL NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+        await sql`ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS monthly_interest_rate DECIMAL NOT NULL DEFAULT 0;`;
+
+        await sql`
+            CREATE TABLE IF NOT EXISTS members (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                first_name TEXT NOT NULL DEFAULT '',
+                last_name TEXT NOT NULL DEFAULT '',
+                company_name TEXT NOT NULL DEFAULT '',
+                menu_routes JSONB NOT NULL DEFAULT '[]'::jsonb,
+                sales_perakende BOOLEAN NOT NULL DEFAULT true,
+                sales_toptan BOOLEAN NOT NULL DEFAULT true,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        `;
+
         console.log('Database tables created successfully');
         return { success: true };
     } catch (error) {

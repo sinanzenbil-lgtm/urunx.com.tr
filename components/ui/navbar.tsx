@@ -4,65 +4,44 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useStockStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, LogIn, LogOut, Search, Package, History, BarChart3, ShoppingCart, Users, RotateCcw } from 'lucide-react';
+import { LayoutDashboard, LogIn, LogOut, Search, Package, History, BarChart3, ShoppingCart, Users, RotateCcw, Settings } from 'lucide-react';
+import type { MenuRouteKey } from '@/types';
+import { pathnameMatchesRoute } from '@/lib/route-access';
+
+const iconByKey: Record<MenuRouteKey, typeof LayoutDashboard> = {
+    ozet: LayoutDashboard,
+    giris: LogIn,
+    iade: RotateCcw,
+    cikis: LogOut,
+    satis: ShoppingCart,
+    cari: Users,
+    urunler: Package,
+    hareketler: History,
+    ara: Search,
+    raporlar: BarChart3,
+    ayarlar: Settings,
+};
+
+const routes: { href: string; label: string; key: MenuRouteKey }[] = [
+    { href: '/', label: 'Özet', key: 'ozet' },
+    { href: '/giris', label: 'Stok Giriş', key: 'giris' },
+    { href: '/iade', label: 'İade', key: 'iade' },
+    { href: '/cikis', label: 'Hızlı Çıkış', key: 'cikis' },
+    { href: '/satis', label: 'Satış', key: 'satis' },
+    { href: '/cari', label: 'Cari Takip', key: 'cari' },
+    { href: '/urunler', label: 'Ürün Listesi', key: 'urunler' },
+    { href: '/hareketler', label: 'Hareketler', key: 'hareketler' },
+    { href: '/ara', label: 'Stok Ara', key: 'ara' },
+    { href: '/raporlar', label: 'Raporlar', key: 'raporlar' },
+    { href: '/ayarlar', label: 'Ayarlar', key: 'ayarlar' },
+];
 
 export default function Navbar() {
     const pathname = usePathname();
-
-    const routes = [
-        {
-            href: '/',
-            label: 'Özet',
-            icon: LayoutDashboard,
-        },
-        {
-            href: '/giris',
-            label: 'Stok Giriş',
-            icon: LogIn,
-        },
-        {
-            href: '/iade',
-            label: 'İade',
-            icon: RotateCcw,
-        },
-        {
-            href: '/cikis',
-            label: 'Hızlı Çıkış',
-            icon: LogOut,
-        },
-        {
-            href: '/satis',
-            label: 'Satış',
-            icon: ShoppingCart,
-        },
-        {
-            href: '/cari',
-            label: 'Cari Takip',
-            icon: Users,
-        },
-        {
-            href: '/urunler',
-            label: 'Ürün Listesi',
-            icon: Package,
-        },
-        {
-            href: '/hareketler',
-            label: 'Hareketler',
-            icon: History,
-        },
-        {
-            href: '/ara',
-            label: 'Stok Ara',
-            icon: Search,
-        },
-        {
-            href: '/raporlar',
-            label: 'Raporlar',
-            icon: BarChart3,
-        },
-    ];
-
     const user = useStockStore((state) => state.user);
+    const allowed = user?.menuRoutes?.length ? new Set(user.menuRoutes) : null;
+
+    const visibleRoutes = allowed ? routes.filter((r) => allowed.has(r.key)) : routes;
 
     return (
         <nav className="border-b border-white/10 bg-zinc-950 sticky top-0 z-50 backdrop-blur-xl">
@@ -76,10 +55,10 @@ export default function Navbar() {
                         {user?.companyName === 'Demo Company' ? 'SPEEDSPOR' : (user?.companyName || 'SPEEDSPOR')}
                     </span>
                 </Link>
-                <div className="flex items-center gap-1 md:gap-2">
-                    {routes.map((route) => {
-                        const Icon = route.icon;
-                        const isActive = pathname === route.href;
+                <div className="flex items-center gap-1 md:gap-2 flex-wrap justify-end">
+                    {visibleRoutes.map((route) => {
+                        const Icon = iconByKey[route.key];
+                        const isActive = pathnameMatchesRoute(pathname, route.href);
                         return (
                             <Link
                                 key={route.href}

@@ -1,11 +1,13 @@
 export type TransactionType = 'IN' | 'OUT';
-export type TransactionKind = 'NORMAL' | 'RETURN';
+export type TransactionKind = 'NORMAL' | 'RETURN' | 'OPENING';
 
 export interface Customer {
     id: string;
     customerCode?: string;
     name: string;
     createdAt?: string;
+    openingBalance?: number;   // + alacak açılışı, - borç açılışı
+    openingBalanceDate?: string;
     // Yeni borç/alacak kurgusu
     creditTotal?: number;      // toplam satış - satış iade (alacak doğuran)
     collectionTotal?: number;  // toplam tahsilat
@@ -45,6 +47,17 @@ export interface CustomerPayment {
     createdAt?: string;
 }
 
+export interface CompanySettings {
+    companyName: string;
+    tradeName: string;
+    address: string;
+    phone: string;
+    email: string;
+    logo?: string;
+    stockInterestMonthlyRate?: number; // Aylık faiz oranı (%)
+    updatedAt?: string;
+}
+
 export interface StockItem {
     id: string;
     barcode: string;
@@ -62,10 +75,70 @@ export interface StockItem {
     updatedAt: string;
 }
 
+/** Navbar / yetki anahtarları (URL segment ile eşleşir) */
+export type MenuRouteKey =
+    | 'ozet'
+    | 'giris'
+    | 'iade'
+    | 'cikis'
+    | 'satis'
+    | 'cari'
+    | 'urunler'
+    | 'hareketler'
+    | 'ara'
+    | 'raporlar'
+    | 'ayarlar';
+
+export const ALL_MENU_KEYS: MenuRouteKey[] = [
+    'ozet',
+    'giris',
+    'iade',
+    'cikis',
+    'satis',
+    'cari',
+    'urunler',
+    'hareketler',
+    'ara',
+    'raporlar',
+    'ayarlar',
+];
+
+export const MENU_ROUTE_OPTIONS: { key: MenuRouteKey; label: string }[] = [
+    { key: 'ozet', label: 'Özet' },
+    { key: 'giris', label: 'Stok Giriş' },
+    { key: 'iade', label: 'İade' },
+    { key: 'cikis', label: 'Hızlı Çıkış' },
+    { key: 'satis', label: 'Satış' },
+    { key: 'cari', label: 'Cari Takip' },
+    { key: 'urunler', label: 'Ürün Listesi' },
+    { key: 'hareketler', label: 'Hareketler' },
+    { key: 'ara', label: 'Stok Ara' },
+    { key: 'raporlar', label: 'Raporlar' },
+    { key: 'ayarlar', label: 'Ayarlar' },
+];
+
 export interface User {
-    email: string;
+    id?: string;
+    email?: string;
+    username?: string;
+    firstName?: string;
+    lastName?: string;
     companyName: string;
+    /** Tanımlı değil veya boş: tüm menüler (eski oturumlar) */
+    menuRoutes?: MenuRouteKey[];
+    salesPerakende?: boolean;
+    salesToptan?: boolean;
 }
+
+export type MemberPublic = {
+    id: string;
+    username: string;
+    firstName: string;
+    lastName: string;
+    menuRoutes: MenuRouteKey[];
+    salesPerakende: boolean;
+    salesToptan: boolean;
+};
 
 export interface StockStore {
     items: StockItem[];

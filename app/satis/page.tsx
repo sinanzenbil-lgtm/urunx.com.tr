@@ -6,12 +6,12 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import Link from 'next/link';
 import { Scan, Search, X, Package, Save, ShoppingCart, User, Building2, Trash2, Users, PlusCircle } from 'lucide-react';
 import { Customer, StockItem } from '@/types';
 import * as dbActions from '@/lib/actions';
 import { v4 as uuidv4 } from 'uuid';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
 
 type SalesType = 'Perakende' | 'Toptan';
 
@@ -30,9 +30,13 @@ export default function SatisPage() {
   const items = useStockStore((s) => s.items);
   const getItemByBarcode = useStockStore((s) => s.getItemByBarcode);
   const addTransaction = useStockStore((s) => s.addTransaction);
+  const user = useStockStore((s) => s.user);
+  const showPerakende = user?.salesPerakende !== false;
+  const showToptan = user?.salesToptan !== false;
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [customerQuery, setCustomerQuery] = useState('');
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   const [newCustomerCode, setNewCustomerCode] = useState('');
   const [newCustomerName, setNewCustomerName] = useState('');
@@ -43,7 +47,9 @@ export default function SatisPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [activeCartId, setActiveCartId] = useState<string | null>(null);
   const [cartChannel, setCartChannel] = useState<SalesType>('Perakende');
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const customerComboRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,6 +61,19 @@ export default function SatisPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!showPerakende && showToptan) {
+      setCartChannel('Toptan');
+      setCart((prev) => prev.map((c) => ({ ...c, channel: 'Toptan' as SalesType })));
+    } else if (showPerakende && !showToptan) {
+      setCartChannel('Perakende');
+      setCart((prev) => prev.map((c) => ({ ...c, channel: 'Perakende' as SalesType })));
+      setSelectedCustomerId('');
+      setCustomerQuery('');
+      setCustomerDropdownOpen(false);
+    }
+  }, [showPerakende, showToptan]);
 
   const refreshCustomers = async () => {
     const rows = await dbActions.getCustomers();
@@ -126,13 +145,42 @@ export default function SatisPage() {
   const setChannelForAll = (channel: SalesType) => {
     setCartChannel(channel);
     setCart((prev) => prev.map((c) => ({ ...c, channel })));
-    if (channel !== 'Toptan') setSelectedCustomerId('');
+    if (channel !== 'Toptan') {
+      setSelectedCustomerId('');
+      setCustomerQuery('');
+      setCustomerDropdownOpen(false);
+    }
   };
 
   const selectedCustomer = useMemo(() => {
     if (!selectedCustomerId) return null;
     return customers.find((c) => c.id === selectedCustomerId) || null;
   }, [customers, selectedCustomerId]);
+
+  /** Cari arama: yazı yokken liste yok; yazınca eşleşenler (açılır liste) */
+  const customersForDropdown = useMemo(() => {
+    const q = customerQuery.trim().toLocaleLowerCase('tr-TR');
+    if (!q) return [];
+    return customers.filter((c) => {
+      const name = (c.name || '').toLocaleLowerCase('tr-TR');
+      const code = (c.customerCode || '').toLocaleLowerCase('tr-TR');
+      return name.includes(q) || code.includes(q);
+    });
+  }, [customers, customerQuery]);
+
+  useEffect(() => {
+    if (cartChannel !== 'Toptan') setCustomerDropdownOpen(false);
+  }, [cartChannel]);
+
+  useEffect(() => {
+    const handleDown = (e: MouseEvent) => {
+      if (customerComboRef.current && !customerComboRef.current.contains(e.target as Node)) {
+        setCustomerDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleDown);
+    return () => document.removeEventListener('mousedown', handleDown);
+  }, []);
 
   const removeCartItem = (id: string) => {
     setCart((prev) => {
@@ -216,7 +264,6 @@ export default function SatisPage() {
       focusScan();
     } catch (err) {
       toast.error('Satış kaydedilirken hata oluştu', { id: toastId });
-      // eslint-disable-next-line no-console
       console.error(err);
     }
   };
@@ -233,17 +280,18 @@ export default function SatisPage() {
         customerCode: newCustomerCode.trim(),
         name: newCustomerName.trim(),
       });
-      if (!(res as any).success) throw new Error(String((res as any).error || 'failed'));
-      const id = (res as any).id as string;
+      const result = res as { success: boolean; id?: string; error?: unknown };
+      if (!result.success || !result.id) throw new Error(String(result.error || 'failed'));
+      const id = result.id;
       await refreshCustomers();
       setSelectedCustomerId(id);
+      setCustomerQuery('');
       toast.success('Cari eklendi ve seçildi', { id: toastId });
       setAddCustomerOpen(false);
       setNewCustomerCode('');
       setNewCustomerName('');
     } catch (err) {
       toast.error('Cari eklenirken hata oluştu', { id: toastId });
-      // eslint-disable-next-line no-console
       console.error(err);
     } finally {
       setNewCustomerSaving(false);
@@ -366,6 +414,11 @@ export default function SatisPage() {
                     const isActive = c.id === activeCartId;
                     const unit = toNumber(c.unitPrice);
                     const lineTotal = unit * (Number(c.quantity) || 0);
+                    const liveQty = (items.find((i) => i.id === c.stockItem.id) ?? c.stockItem).quantity;
+                    const remainingStock = liveQty - (Number(c.quantity) || 0);
+                    const flashLowStock =
+                      remainingStock <= 2 && remainingStock >= 0;
+                    const flashOversell = remainingStock < 0;
                     return (
                       <button
                         type="button"
@@ -384,12 +437,24 @@ export default function SatisPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="font-medium text-white truncate">{c.stockItem.name}</div>
-                          <div className="text-xs text-zinc-500 flex gap-2">
+                          <div className="text-xs text-zinc-500 flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span>{c.channel}</span>
                             <span>•</span>
                             <span className="font-mono">{c.quantity} adet</span>
                             <span>•</span>
                             <span>{currency(unit)}</span>
+                            <span>•</span>
+                            <span
+                              className={cn(
+                                'font-mono font-semibold tabular-nums',
+                                !flashLowStock && !flashOversell && 'text-zinc-200',
+                                flashLowStock && 'text-red-400 animate-pulse',
+                                flashOversell && 'text-red-500 animate-pulse'
+                              )}
+                              title="Bu satıştan sonra depoda kalacak adet"
+                            >
+                              Kalan stok: {remainingStock}
+                            </span>
                             {cartChannel === 'Toptan' && selectedCustomer ? (
                               <>
                                 <span>•</span>
@@ -443,7 +508,12 @@ export default function SatisPage() {
                   const item = activeCartItem.stockItem;
                   const unit = toNumber(activeCartItem.unitPrice);
                   const lineTotal = unit * (Number(activeCartItem.quantity) || 0);
-                  const insufficient = item.quantity < activeCartItem.quantity;
+                  const liveQty = (items.find((i) => i.id === item.id) ?? item).quantity;
+                  const qtyInCart = Number(activeCartItem.quantity) || 0;
+                  const remainingAfterSale = liveQty - qtyInCart;
+                  const insufficient = liveQty < qtyInCart;
+                  const flashLowStockDetail = remainingAfterSale <= 2 && remainingAfterSale >= 0;
+                  const flashOversellDetail = remainingAfterSale < 0;
 
                   return (
                     <div className="space-y-4">
@@ -466,9 +536,21 @@ export default function SatisPage() {
                             {item.stockCode && <span className="text-zinc-600">• {item.stockCode}</span>}
                             {item.brand && <span className="text-zinc-600">• {item.brand}</span>}
                           </div>
-                          <div className="mt-2 text-sm">
-                            <span className="text-zinc-500">Mevcut stok: </span>
-                            <span className={`font-bold ${insufficient ? 'text-red-400' : 'text-white'}`}>{item.quantity}</span>
+                          <div className="mt-2 text-sm flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                            <span className="text-zinc-500">Depoda:</span>
+                            <span className="font-bold text-white tabular-nums">{liveQty}</span>
+                            <span className="text-zinc-600">→</span>
+                            <span className="text-zinc-500">Satış sonrası kalan:</span>
+                            <span
+                              className={cn(
+                                'font-bold tabular-nums',
+                                flashLowStockDetail && 'text-red-400 animate-pulse',
+                                flashOversellDetail && 'text-red-500 animate-pulse',
+                                !flashLowStockDetail && !flashOversellDetail && 'text-emerald-300'
+                              )}
+                            >
+                              {remainingAfterSale}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -490,7 +572,7 @@ export default function SatisPage() {
                           <Input
                             type="number"
                             min={1}
-                            max={item.quantity}
+                            max={liveQty}
                             value={activeCartItem.quantity === 0 ? '' : activeCartItem.quantity}
                             onChange={(e) => {
                               const val = e.target.value;
@@ -507,32 +589,48 @@ export default function SatisPage() {
 
                         <div className="space-y-2">
                           <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Satış Türü</label>
-                          <div className="flex bg-zinc-950 rounded-lg p-1 border border-zinc-800 h-14 items-center justify-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => setChannelForAll('Perakende')}
-                              className={`flex-1 h-12 rounded-md transition-all flex items-center justify-center gap-2 ${
-                                cartChannel === 'Perakende'
-                                  ? 'bg-emerald-600 text-white shadow-lg'
-                                  : 'text-zinc-500 hover:text-zinc-300'
-                              }`}
-                            >
-                              <User size={16} />
-                              <span className="font-semibold">Perakende</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setChannelForAll('Toptan')}
-                              className={`flex-1 h-12 rounded-md transition-all flex items-center justify-center gap-2 ${
-                                cartChannel === 'Toptan'
-                                  ? 'bg-orange-600 text-white shadow-lg'
-                                  : 'text-zinc-500 hover:text-zinc-300'
-                              }`}
-                            >
-                              <Building2 size={16} />
-                              <span className="font-semibold">Toptan</span>
-                            </button>
-                          </div>
+                          {showPerakende && showToptan ? (
+                            <div className="flex bg-zinc-950 rounded-lg p-1 border border-zinc-800 h-14 items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setChannelForAll('Perakende')}
+                                className={`flex-1 h-12 rounded-md transition-all flex items-center justify-center gap-2 ${
+                                  cartChannel === 'Perakende'
+                                    ? 'bg-emerald-600 text-white shadow-lg'
+                                    : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                              >
+                                <User size={16} />
+                                <span className="font-semibold">Perakende</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setChannelForAll('Toptan')}
+                                className={`flex-1 h-12 rounded-md transition-all flex items-center justify-center gap-2 ${
+                                  cartChannel === 'Toptan'
+                                    ? 'bg-orange-600 text-white shadow-lg'
+                                    : 'text-zinc-500 hover:text-zinc-300'
+                                }`}
+                              >
+                                <Building2 size={16} />
+                                <span className="font-semibold">Toptan</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex h-14 items-center justify-center rounded-lg border border-zinc-800 bg-zinc-950 px-3">
+                              {showPerakende ? (
+                                <span className="inline-flex items-center gap-2 font-semibold text-emerald-400">
+                                  <User size={16} />
+                                  Perakende
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-2 font-semibold text-orange-400">
+                                  <Building2 size={16} />
+                                  Toptan
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -549,18 +647,90 @@ export default function SatisPage() {
                               Yeni Cari
                             </button>
                           </div>
-                          <select
-                            value={selectedCustomerId}
-                            onChange={(e) => setSelectedCustomerId(e.target.value)}
-                            className="w-full h-12 px-3 rounded-md bg-zinc-950 border border-zinc-800 text-white focus:border-primary/50 focus:outline-none"
-                          >
-                            <option value="">Cari seçiniz...</option>
-                            {customers.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {(c.customerCode ? `${c.customerCode} - ` : '') + c.name}
-                              </option>
-                            ))}
-                          </select>
+                          <div className="relative z-20" ref={customerComboRef}>
+                            <Search className="absolute left-3 top-3 w-5 h-5 text-zinc-500 pointer-events-none" />
+                            <Input
+                              value={customerQuery}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setCustomerQuery(v);
+                                setCustomerDropdownOpen(v.trim().length > 0);
+                              }}
+                              onFocus={() => {
+                                if (customerQuery.trim().length > 0) setCustomerDropdownOpen(true);
+                              }}
+                              placeholder="Cari isim veya kodu yazın..."
+                              className="pl-10 pr-10 h-12 bg-zinc-950 border-zinc-800"
+                              autoComplete="off"
+                            />
+                            {customerQuery && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setCustomerQuery('');
+                                  setSelectedCustomerId('');
+                                  setCustomerDropdownOpen(false);
+                                }}
+                                className="absolute right-3 top-3 text-zinc-500 hover:text-white"
+                              >
+                                <X size={18} />
+                              </button>
+                            )}
+
+                            {customerDropdownOpen && customerQuery.trim().length > 0 && (
+                              <div className="absolute top-full left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-md border border-zinc-800 bg-zinc-950 shadow-xl">
+                                {customersForDropdown.length === 0 ? (
+                                  <div className="px-3 py-4 text-sm text-zinc-500 text-center">Cari bulunamadı.</div>
+                                ) : (
+                                  customersForDropdown.map((c) => {
+                                    const isSelected = c.id === selectedCustomerId;
+                                    return (
+                                      <button
+                                        type="button"
+                                        key={c.id}
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => {
+                                          setSelectedCustomerId(c.id);
+                                          setCustomerQuery(
+                                            c.customerCode ? `${c.customerCode} — ${c.name}` : c.name
+                                          );
+                                          setCustomerDropdownOpen(false);
+                                        }}
+                                        className={cn(
+                                          'w-full text-left px-3 py-2.5 border-b border-zinc-800 last:border-b-0 transition-colors',
+                                          isSelected ? 'bg-sky-600/15' : 'hover:bg-zinc-900'
+                                        )}
+                                      >
+                                        <div className={cn('font-medium', isSelected ? 'text-sky-300' : 'text-white')}>
+                                          {c.name}
+                                        </div>
+                                        <div className="text-xs text-zinc-500">{c.customerCode || '-'}</div>
+                                      </button>
+                                    );
+                                  })
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {selectedCustomerId && selectedCustomer ? (
+                            <div className="flex items-center justify-between text-xs rounded-md border border-sky-700/40 bg-sky-500/10 px-3 py-2">
+                              <span className="text-sky-200">
+                                Seçili: {(selectedCustomer.customerCode ? `${selectedCustomer.customerCode} - ` : '') + selectedCustomer.name}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedCustomerId('');
+                                  setCustomerQuery('');
+                                  setCustomerDropdownOpen(false);
+                                }}
+                                className="text-sky-300 hover:text-sky-200"
+                              >
+                                Temizle
+                              </button>
+                            </div>
+                          ) : null}
                           {!selectedCustomerId && (
                             <div className="text-xs text-amber-300">Toptan satış kaydetmek için cari seçmelisiniz</div>
                           )}
@@ -666,5 +836,3 @@ export default function SatisPage() {
     </div>
   );
 }
-
-

@@ -73,9 +73,9 @@ export default function ExcelImportModal() {
                         {
                             id: uuidv4(),
                             date: new Date().toISOString(),
-                            type: (row['Adet'] > 0 ? 'IN' : 'IN') as any,
-                            quantity: Math.abs(parseInt(row['StokAdedi'])) || 0,
-                            channel: 'Pazaryeri'
+                            type: 'IN',
+                            kind: 'OPENING',
+                            quantity: Math.abs(parseInt(row['StokAdedi'])) || 0
                         }
                     ],
                     createdAt: new Date().toISOString(),

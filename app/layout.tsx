@@ -7,8 +7,19 @@ import DbSyncProvider from '@/components/db-sync-provider';
 import { Toaster } from 'sonner';
 
 const inter = Inter({ subsets: ['latin'] });
+const metadataBase = (() => {
+  const configuredUrl =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+  try {
+    return new URL(configuredUrl);
+  } catch {
+    return new URL('http://localhost:3000');
+  }
+})();
 
 export const metadata: Metadata = {
+  metadataBase,
   title: 'URUNX | SPEEDSPOR',
   description: 'Hızlı ve Profesyonel Stok Takip Sistemi',
   icons: {

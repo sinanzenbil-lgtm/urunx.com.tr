@@ -19,6 +19,7 @@ type FlatTransaction = Transaction & {
     brand?: string;
     itemId: string;
     itemSellPrice: number;
+    itemCreatedAt: string;
 };
 
 const currency = (value: number) =>
@@ -55,6 +56,24 @@ export default function MovementsPage() {
         return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
     };
 
+    const isOpeningTx = (t: FlatTransaction) => {
+        if (t.kind === 'OPENING') return true;
+        // Backward compatibility: old Excel imports were saved as normal IN + Pazaryeri
+        // at item creation time. Show those as "Devir Bakiye" too.
+        const createdAtTs = new Date(t.itemCreatedAt).getTime();
+        const txTs = new Date(t.date).getTime();
+        const nearCreation = Number.isFinite(createdAtTs) && Number.isFinite(txTs) && Math.abs(createdAtTs - txTs) <= 60_000;
+        return t.type === 'IN' && (t.kind === 'NORMAL' || !t.kind) && (t.channel || '') === 'Pazaryeri' && !t.customerId && nearCreation;
+    };
+
+    const isOpeningItemTx = (item: StockItem, t: Transaction) => {
+        if (t.kind === 'OPENING') return true;
+        const createdAtTs = new Date(item.createdAt).getTime();
+        const txTs = new Date(t.date).getTime();
+        const nearCreation = Number.isFinite(createdAtTs) && Number.isFinite(txTs) && Math.abs(createdAtTs - txTs) <= 60_000;
+        return t.type === 'IN' && (t.kind === 'NORMAL' || !t.kind) && (t.channel || '') === 'Pazaryeri' && !t.customerId && nearCreation;
+    };
+
     // Flatten all transactions from all items
     const allTransactions = useMemo<FlatTransaction[]>(
         () =>
@@ -68,6 +87,7 @@ export default function MovementsPage() {
                         brand: item.brand,
                         itemId: item.id,
                         itemSellPrice: Number(item.sellPrice) || 0,
+                        itemCreatedAt: item.createdAt,
                     }))
                 )
                 .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
@@ -339,7 +359,12 @@ export default function MovementsPage() {
                                                 {new Date(t.date).toLocaleString('tr-TR')}
                                             </td>
                                             <td className="px-6 py-4">
-                                                {t.type === 'IN' && t.kind === 'RETURN' ? (
+                                                {isOpeningTx(t) ? (
+                                                    <div className="flex items-center gap-2 font-medium text-cyan-400">
+                                                        <ArrowDownCircle className="w-4 h-4" />
+                                                        Devir Bakiye
+                                                    </div>
+                                                ) : t.type === 'IN' && t.kind === 'RETURN' ? (
                                                     <div className="flex items-center gap-2 font-medium text-purple-400">
                                                         <ArrowDownCircle className="w-4 h-4" />
                                                         İade (Giriş)
@@ -371,7 +396,9 @@ export default function MovementsPage() {
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 text-right text-zinc-300 font-mono text-xs">
-                                                {t.type === 'OUT' ? (
+                                                {isOpeningTx(t) ? (
+                                                    '-'
+                                                ) : t.type === 'OUT' ? (
                                                     currency(Number(t.unitPrice) || 0)
                                                 ) : (t.type === 'IN' && t.kind === 'RETURN') ? (
                                                     currency(Number(t.unitPrice) || 0)
@@ -380,7 +407,7 @@ export default function MovementsPage() {
                                                 )}
                                             </td>
                                             <td className="px-6 py-4 text-right font-mono text-xs">
-                                                {t.type === 'OUT' || (t.type === 'IN' && t.kind === 'RETURN') ? (
+                                                {!isOpeningTx(t) && (t.type === 'OUT' || (t.type === 'IN' && t.kind === 'RETURN')) ? (
                                                     <span className="font-bold text-blue-300">
                                                         {currency(
                                                             Number(t.totalPrice) ||
@@ -456,7 +483,7 @@ export default function MovementsPage() {
                                             <div key={t.id} className="flex items-center justify-between border-b border-white/5 pb-2 last:border-0">
                                                 <div>
                                                     <p className="text-sm font-medium text-white">
-                                                        {t.type === 'IN' ? 'Giriş' : 'Çıkış'} • {t.quantity} adet
+                                                        {(isOpeningItemTx(transactionsItem, t) ? 'Devir Bakiye' : (t.type === 'IN' ? 'Giriş' : 'Çıkış'))} • {t.quantity} adet
                                                     </p>
                                                     <p className="text-xs text-zinc-500">{new Date(t.date).toLocaleString('tr-TR')}</p>
                                                     {t.channel && (

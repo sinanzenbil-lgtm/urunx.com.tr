@@ -1,8 +1,30 @@
 'use server';
 
 import { sql } from './db';
-import { Customer, PaymentMethod, StockItem, Transaction } from '@/types';
+import { hashPassword, verifyPassword } from './password';
+import {
+    ALL_MENU_KEYS,
+    CompanySettings,
+    Customer,
+    type MemberPublic,
+    type MenuRouteKey,
+    PaymentMethod,
+    StockItem,
+    Transaction,
+    type User,
+} from '@/types';
 import { revalidatePath } from 'next/cache';
+
+const OPENING_BALANCE_DEFAULT_DATE = '2000-01-01T00:00:00.000Z';
+const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
+    companyName: '',
+    tradeName: '',
+    address: '',
+    phone: '',
+    email: '',
+    logo: '',
+    stockInterestMonthlyRate: 0,
+};
 
 export async function getItems() {
     try {
@@ -107,6 +129,28 @@ async function ensureItemsSchema() {
 async function ensureCustomerPaymentsSchema() {
     // Backward compatible: older DBs might not have direction column.
     await sql`ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'IN';`;
+}
+
+async function ensureCustomersSchema() {
+    await sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance DECIMAL NOT NULL DEFAULT 0;`;
+    await sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '2000-01-01T00:00:00.000Z';`;
+}
+
+async function ensureCompanySettingsSchema() {
+    await sql`
+        CREATE TABLE IF NOT EXISTS company_settings (
+            id TEXT PRIMARY KEY,
+            company_name TEXT NOT NULL DEFAULT '',
+            trade_name TEXT NOT NULL DEFAULT '',
+            address TEXT NOT NULL DEFAULT '',
+            phone TEXT NOT NULL DEFAULT '',
+            email TEXT NOT NULL DEFAULT '',
+            logo TEXT,
+            monthly_interest_rate DECIMAL NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+    `;
+    await sql`ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS monthly_interest_rate DECIMAL NOT NULL DEFAULT 0;`;
 }
 
 export async function addItem(item: StockItem) {
@@ -328,8 +372,9 @@ export async function removeTransactions(transactionIds: string[]) {
     }
 }
 
-export async function updateCustomer(customerId: string, payload: { customerCode?: string; name?: string }) {
+export async function updateCustomer(customerId: string, payload: { customerCode?: string; name?: string; openingBalance?: number }) {
     try {
+        await ensureCustomersSchema();
         const id = (customerId || '').trim();
         if (!id) return { success: false, error: 'customerId is required' };
 
@@ -338,11 +383,22 @@ export async function updateCustomer(customerId: string, payload: { customerCode
 
         const codeRaw = (payload.customerCode ?? '').trim();
         const code = codeRaw.length > 0 ? codeRaw : null;
+        const openingBalanceInput = payload.openingBalance;
+        const openingBalance = openingBalanceInput === undefined ? null : Number(openingBalanceInput);
+        if (openingBalance !== null && !Number.isFinite(openingBalance)) {
+            return { success: false, error: 'openingBalance must be numeric' };
+        }
+        const shouldResetOpeningBalanceDate = openingBalance !== null;
 
         await sql`
             UPDATE customers
             SET customer_code = ${code},
-                name = ${name}
+                name = ${name},
+                opening_balance = COALESCE(${openingBalance}, opening_balance),
+                opening_balance_date = CASE
+                    WHEN ${shouldResetOpeningBalanceDate} THEN '2000-01-01T00:00:00.000Z'::timestamptz
+                    ELSE opening_balance_date
+                END
             WHERE id = ${id};
         `;
 
@@ -557,6 +613,7 @@ export async function removeCustomerPayments(paymentIds: string[]) {
 
 export async function getCustomers() {
     try {
+        await ensureCustomersSchema();
         await ensureCustomerPaymentsSchema();
         const customers = await sql`
             WITH tx AS (
@@ -596,16 +653,43 @@ export async function getCustomers() {
                 c.customer_code as "customerCode",
                 c.name,
                 c.created_at as "createdAt",
-                COALESCE(t.credit_total, 0) as "creditTotal",
-                COALESCE(t.debt_total, 0) as "debtTotal",
+                COALESCE(c.opening_balance, 0) as "openingBalance",
+                c.opening_balance_date as "openingBalanceDate",
+                (
+                    COALESCE(t.credit_total, 0)
+                    + CASE WHEN COALESCE(c.opening_balance, 0) > 0 THEN COALESCE(c.opening_balance, 0) ELSE 0 END
+                ) as "creditTotal",
+                (
+                    COALESCE(t.debt_total, 0)
+                    + CASE WHEN COALESCE(c.opening_balance, 0) < 0 THEN ABS(COALESCE(c.opening_balance, 0)) ELSE 0 END
+                ) as "debtTotal",
                 COALESCE(m.collection_total, 0) as "collectionTotal",
                 COALESCE(m.payment_total, 0) as "paymentTotal",
-                (COALESCE(t.credit_total, 0) - COALESCE(m.collection_total, 0)) as "creditBalance",
-                (COALESCE(t.debt_total, 0) - COALESCE(m.payment_total, 0)) as "debtBalance"
+                (
+                    COALESCE(t.credit_total, 0)
+                    + CASE WHEN COALESCE(c.opening_balance, 0) > 0 THEN COALESCE(c.opening_balance, 0) ELSE 0 END
+                    - COALESCE(m.collection_total, 0)
+                ) as "creditBalance",
+                (
+                    COALESCE(t.debt_total, 0)
+                    + CASE WHEN COALESCE(c.opening_balance, 0) < 0 THEN ABS(COALESCE(c.opening_balance, 0)) ELSE 0 END
+                    - COALESCE(m.payment_total, 0)
+                ) as "debtBalance"
             FROM customers c
             LEFT JOIN tx t ON t.customer_id = c.id
             LEFT JOIN money m ON m.customer_id = c.id
-            ORDER BY COALESCE(NULLIF(c.customer_code, ''), c.name) ASC;
+            ORDER BY
+                CASE
+                    WHEN NULLIF(c.customer_code, '') IS NULL THEN 2
+                    WHEN c.customer_code ~ '^[0-9]+$' THEN 0
+                    ELSE 1
+                END ASC,
+                CASE
+                    WHEN c.customer_code ~ '^[0-9]+$' THEN c.customer_code::numeric
+                    ELSE NULL
+                END ASC,
+                LOWER(COALESCE(c.customer_code, '')) ASC,
+                LOWER(c.name) ASC;
         `;
 
         const rows = customers as unknown as Array<
@@ -616,6 +700,8 @@ export async function getCustomers() {
                 paymentTotal: unknown;
                 creditBalance: unknown;
                 debtBalance: unknown;
+                openingBalance: unknown;
+                openingBalanceDate: string | null;
             }
         >;
         return rows.map((c) => ({
@@ -626,6 +712,8 @@ export async function getCustomers() {
             paymentTotal: Number(c.paymentTotal) || 0,
             creditBalance: Number(c.creditBalance) || 0,
             debtBalance: Number(c.debtBalance) || 0,
+            openingBalance: Number(c.openingBalance) || 0,
+            openingBalanceDate: c.openingBalanceDate || OPENING_BALANCE_DEFAULT_DATE,
         })) as unknown as Customer[];
     } catch (error) {
         console.error('Error fetching customers:', error);
@@ -633,8 +721,107 @@ export async function getCustomers() {
     }
 }
 
-export async function addCustomer(payload: { customerCode?: string; name: string }) {
+export async function getCustomerById(customerId: string) {
     try {
+        const id = (customerId || '').trim();
+        if (!id) return { success: false, error: 'customerId is required', customer: null as Customer | null };
+        const customers = await getCustomers();
+        const customer = customers.find((c) => c.id === id) || null;
+        if (!customer) return { success: false, error: 'customer not found', customer: null as Customer | null };
+        return { success: true, customer };
+    } catch (error) {
+        console.error('Error fetching customer by id:', error);
+        return { success: false, error, customer: null as Customer | null };
+    }
+}
+
+export async function getCompanySettings() {
+    try {
+        await ensureCompanySettingsSchema();
+        const rows = await sql`
+            SELECT
+                id,
+                company_name as "companyName",
+                trade_name as "tradeName",
+                address,
+                phone,
+                email,
+                logo,
+                monthly_interest_rate as "stockInterestMonthlyRate",
+                updated_at as "updatedAt"
+            FROM company_settings
+            WHERE id = 'default'
+            LIMIT 1;
+        `;
+        if (!rows?.length) {
+            return { success: true, settings: { ...DEFAULT_COMPANY_SETTINGS } };
+        }
+        const row = rows[0] as unknown as {
+            companyName: string | null;
+            tradeName: string | null;
+            address: string | null;
+            phone: string | null;
+            email: string | null;
+            logo: string | null;
+            stockInterestMonthlyRate: unknown;
+            updatedAt: string | null;
+        };
+        const settings: CompanySettings = {
+            companyName: row.companyName || '',
+            tradeName: row.tradeName || '',
+            address: row.address || '',
+            phone: row.phone || '',
+            email: row.email || '',
+            logo: row.logo || '',
+            stockInterestMonthlyRate: Number(row.stockInterestMonthlyRate) || 0,
+            updatedAt: row.updatedAt || undefined,
+        };
+        return { success: true, settings };
+    } catch (error) {
+        console.error('Error fetching company settings:', error);
+        return { success: false, error, settings: { ...DEFAULT_COMPANY_SETTINGS } };
+    }
+}
+
+export async function upsertCompanySettings(payload: CompanySettings) {
+    try {
+        await ensureCompanySettingsSchema();
+        const companyName = (payload.companyName || '').trim();
+        const tradeName = (payload.tradeName || '').trim();
+        const address = (payload.address || '').trim();
+        const phone = (payload.phone || '').trim();
+        const email = (payload.email || '').trim();
+        const logo = (payload.logo || '').trim() || null;
+        const stockInterestMonthlyRate = Number(payload.stockInterestMonthlyRate) || 0;
+
+        await sql`
+            INSERT INTO company_settings (id, company_name, trade_name, address, phone, email, logo, monthly_interest_rate, updated_at)
+            VALUES ('default', ${companyName}, ${tradeName}, ${address}, ${phone}, ${email}, ${logo}, ${stockInterestMonthlyRate}, ${new Date().toISOString()})
+            ON CONFLICT (id) DO UPDATE SET
+                company_name = EXCLUDED.company_name,
+                trade_name = EXCLUDED.trade_name,
+                address = EXCLUDED.address,
+                phone = EXCLUDED.phone,
+                email = EXCLUDED.email,
+                logo = EXCLUDED.logo,
+                monthly_interest_rate = EXCLUDED.monthly_interest_rate,
+                updated_at = EXCLUDED.updated_at;
+        `;
+
+        revalidatePath('/ayarlar');
+        revalidatePath('/cari');
+        revalidatePath('/raporlar');
+        revalidatePath('/raporlar/stok-maliyeti');
+        return { success: true };
+    } catch (error) {
+        console.error('Error updating company settings:', error);
+        return { success: false, error };
+    }
+}
+
+export async function addCustomer(payload: { customerCode?: string; name: string; openingBalance?: number; openingBalanceDate?: string }) {
+    try {
+        await ensureCustomersSchema();
         const name = (payload.name || '').trim();
         if (!name) return { success: false, error: 'Name is required' };
 
@@ -648,10 +835,19 @@ export async function addCustomer(payload: { customerCode?: string; name: string
             code = String(maxCode + 1);
         }
 
+        const openingBalanceRaw = Number(payload.openingBalance ?? 0);
+        const openingBalance = Number.isFinite(openingBalanceRaw) ? openingBalanceRaw : 0;
+        const openingBalanceDateRaw = (payload.openingBalanceDate || '').trim();
+        const parsedOpeningDate = openingBalanceDateRaw ? new Date(openingBalanceDateRaw) : null;
+        const openingBalanceDate =
+            parsedOpeningDate && !Number.isNaN(parsedOpeningDate.getTime())
+                ? parsedOpeningDate.toISOString()
+                : OPENING_BALANCE_DEFAULT_DATE;
+
         const id = crypto.randomUUID();
         await sql`
-            INSERT INTO customers (id, customer_code, name)
-            VALUES (${id}, ${code}, ${name});
+            INSERT INTO customers (id, customer_code, name, opening_balance, opening_balance_date)
+            VALUES (${id}, ${code}, ${name}, ${openingBalance}, ${openingBalanceDate});
         `;
         revalidatePath('/cari');
         return { success: true, id };
@@ -663,6 +859,7 @@ export async function addCustomer(payload: { customerCode?: string; name: string
 
 export async function getCustomerMovements(customerId: string) {
     try {
+        await ensureCustomersSchema();
         await ensureCustomerPaymentsSchema();
         const rows = await sql`
             (
@@ -713,6 +910,31 @@ export async function getCustomerMovements(customerId: string) {
                 FROM customer_payments p
                 WHERE p.customer_id = ${customerId}
             )
+            UNION ALL
+            (
+                SELECT
+                    'OPENING' as kind,
+                    ('opening-' || c.id) as id,
+                    COALESCE(c.opening_balance_date, '2000-01-01T00:00:00.000Z'::timestamptz) as date,
+                    'OPENING' as type,
+                    NULL::text as "txKind",
+                    0 as quantity,
+                    NULL::text as channel,
+                    0 as "unitPrice",
+                    ABS(COALESCE(c.opening_balance, 0)) as "totalPrice",
+                    CASE WHEN COALESCE(c.opening_balance, 0) >= 0 THEN 'IN' ELSE 'OUT' END as direction,
+                    'Açılış Bakiyesi' as method,
+                    NULL::text as description,
+                    NULL::text as "itemId",
+                    NULL::text as "itemName",
+                    NULL::text as "barcode",
+                    NULL::text as "stockCode",
+                    NULL::text as "image",
+                    NULL::text as "brand"
+                FROM customers c
+                WHERE c.id = ${customerId}
+                  AND COALESCE(c.opening_balance, 0) <> 0
+            )
             ORDER BY date DESC;
         `;
         return { success: true, rows };
@@ -754,5 +976,309 @@ export async function addCustomerPayment(payload: {
     } catch (error) {
         console.error('Error adding customer payment:', error);
         return { success: false, error };
+    }
+}
+
+function parseMenuRoutes(raw: unknown): MenuRouteKey[] {
+    if (raw == null) return [];
+    if (Array.isArray(raw)) {
+        return raw.filter((x): x is MenuRouteKey => typeof x === 'string' && ALL_MENU_KEYS.includes(x as MenuRouteKey));
+    }
+    if (typeof raw === 'string') {
+        try {
+            const p = JSON.parse(raw) as unknown;
+            return parseMenuRoutes(p);
+        } catch {
+            return [];
+        }
+    }
+    return [];
+}
+
+async function ensureMembersTable() {
+    await sql`
+        CREATE TABLE IF NOT EXISTS members (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            first_name TEXT NOT NULL DEFAULT '',
+            last_name TEXT NOT NULL DEFAULT '',
+            company_name TEXT NOT NULL DEFAULT '',
+            menu_routes JSONB NOT NULL DEFAULT '[]'::jsonb,
+            sales_perakende BOOLEAN NOT NULL DEFAULT true,
+            sales_toptan BOOLEAN NOT NULL DEFAULT true,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+    `;
+}
+
+export async function getNeedsFirstSetup(): Promise<{ needsFirstSetup: boolean }> {
+    try {
+        await ensureMembersTable();
+        const cnt = await sql`SELECT COUNT(*)::int AS c FROM members`;
+        const n = Number((cnt[0] as { c: number }).c) || 0;
+        return { needsFirstSetup: n === 0 };
+    } catch (error) {
+        console.error('getNeedsFirstSetup:', error);
+        return { needsFirstSetup: false };
+    }
+}
+
+export async function completeFirstSetup(payload: {
+    companyName: string;
+    firstName: string;
+    lastName: string;
+    username: string;
+    password: string;
+}) {
+    try {
+        await ensureMembersTable();
+        const cnt = await sql`SELECT COUNT(*)::int AS c FROM members`;
+        if (Number((cnt[0] as { c: number }).c) > 0) {
+            return { success: false as const, error: 'already_setup' as const };
+        }
+        const companyName = (payload.companyName || '').trim();
+        const firstName = (payload.firstName || '').trim();
+        const lastName = (payload.lastName || '').trim();
+        const username = (payload.username || '').trim();
+        const password = payload.password || '';
+        if (!companyName || !firstName || !lastName || !username) {
+            return { success: false as const, error: 'invalid' as const };
+        }
+        if (password.length < 4) return { success: false as const, error: 'password' as const };
+
+        const settingsRes = await upsertCompanySettings({
+            ...DEFAULT_COMPANY_SETTINGS,
+            companyName,
+        });
+        if (!settingsRes.success) return { success: false as const, error: 'settings' as const };
+
+        const id = crypto.randomUUID();
+        const pwHash = hashPassword(password);
+        const routesJson = JSON.stringify(ALL_MENU_KEYS);
+        await sql`
+            INSERT INTO members (id, username, password_hash, first_name, last_name, company_name, menu_routes, sales_perakende, sales_toptan)
+            VALUES (
+                ${id},
+                ${username},
+                ${pwHash},
+                ${firstName},
+                ${lastName},
+                ${companyName},
+                ${routesJson}::jsonb,
+                true,
+                true
+            );
+        `;
+        const user: User = {
+            id,
+            username,
+            firstName,
+            lastName,
+            companyName,
+            menuRoutes: [...ALL_MENU_KEYS],
+            salesPerakende: true,
+            salesToptan: true,
+        };
+        revalidatePath('/ayarlar');
+        revalidatePath('/login');
+        return { success: true as const, user };
+    } catch (error) {
+        console.error('completeFirstSetup:', error);
+        return { success: false as const, error: 'server' as const };
+    }
+}
+
+function rowToUser(
+    row: {
+        id: string;
+        username: string;
+        first_name: string | null;
+        last_name: string | null;
+        menu_routes: unknown;
+        sales_perakende: boolean | null;
+        sales_toptan: boolean | null;
+    },
+    companyName: string
+): User {
+    const parsed = parseMenuRoutes(row.menu_routes);
+    const menuRoutes = parsed.length > 0 ? parsed : ALL_MENU_KEYS;
+    return {
+        id: row.id,
+        username: row.username,
+        firstName: row.first_name || '',
+        lastName: row.last_name || '',
+        companyName: companyName || 'Şirket',
+        menuRoutes,
+        salesPerakende: row.sales_perakende !== false,
+        salesToptan: row.sales_toptan !== false,
+    };
+}
+
+export async function loginWithUsername(username: string, password: string) {
+    try {
+        await ensureMembersTable();
+        const u = (username || '').trim();
+        if (!u || !password) return { success: false as const, error: 'missing' };
+        const rows = await sql`
+            SELECT
+                id,
+                username,
+                password_hash,
+                first_name,
+                last_name,
+                company_name,
+                menu_routes,
+                sales_perakende,
+                sales_toptan
+            FROM members
+            WHERE lower(username) = lower(${u})
+            LIMIT 1
+        `;
+        if (!rows.length) return { success: false as const, error: 'invalid' };
+        const row = rows[0] as {
+            id: string;
+            username: string;
+            password_hash: string;
+            first_name: string | null;
+            last_name: string | null;
+            company_name: string | null;
+            menu_routes: unknown;
+            sales_perakende: boolean | null;
+            sales_toptan: boolean | null;
+        };
+        if (!verifyPassword(password, row.password_hash)) return { success: false as const, error: 'invalid' };
+        const settingsRes = await getCompanySettings();
+        const fromSettings =
+            settingsRes.success && settingsRes.settings?.companyName
+                ? settingsRes.settings.companyName.trim()
+                : '';
+        const companyName = fromSettings || (row.company_name || '').trim() || 'SPEEDSPOR';
+        const user = rowToUser(row, companyName);
+        return { success: true as const, user };
+    } catch (error) {
+        console.error('loginWithUsername:', error);
+        return { success: false as const, error: 'server' };
+    }
+}
+
+export async function listMembers(): Promise<{ success: boolean; members: MemberPublic[]; error?: unknown }> {
+    try {
+        await ensureMembersTable();
+        const rows = await sql`
+            SELECT id, username, first_name, last_name, menu_routes, sales_perakende, sales_toptan
+            FROM members
+            ORDER BY lower(username)
+        `;
+        const members: MemberPublic[] = (rows as unknown as Array<Record<string, unknown>>).map((r) => {
+            const parsed = parseMenuRoutes(r.menu_routes);
+            return {
+                id: String(r.id),
+                username: String(r.username),
+                firstName: String(r.first_name ?? ''),
+                lastName: String(r.last_name ?? ''),
+                menuRoutes: parsed.length > 0 ? parsed : ALL_MENU_KEYS,
+                salesPerakende: r.sales_perakende !== false,
+                salesToptan: r.sales_toptan !== false,
+            };
+        });
+        return { success: true, members };
+    } catch (error) {
+        console.error('listMembers:', error);
+        return { success: false, members: [], error };
+    }
+}
+
+export async function createMember(payload: {
+    firstName: string;
+    lastName: string;
+    username: string;
+    password: string;
+    menuRoutes: MenuRouteKey[];
+    salesPerakende: boolean;
+    salesToptan: boolean;
+}) {
+    try {
+        await ensureMembersTable();
+        const firstName = (payload.firstName || '').trim();
+        const lastName = (payload.lastName || '').trim();
+        const username = (payload.username || '').trim();
+        const password = payload.password || '';
+        let salesPerakende = Boolean(payload.salesPerakende);
+        let salesToptan = Boolean(payload.salesToptan);
+        if (!salesPerakende && !salesToptan) {
+            salesPerakende = true;
+        }
+        const menuRoutes = (payload.menuRoutes || []).filter((k) => ALL_MENU_KEYS.includes(k));
+        if (!firstName || !lastName) return { success: false as const, error: 'name' };
+        if (!username) return { success: false as const, error: 'username' };
+        if (password.length < 4) return { success: false as const, error: 'password' };
+        if (menuRoutes.length === 0) return { success: false as const, error: 'menus' };
+
+        const dup = await sql`SELECT 1 FROM members WHERE lower(username) = lower(${username}) LIMIT 1`;
+        if (dup.length) return { success: false as const, error: 'duplicate' };
+
+        const settingsRes = await getCompanySettings();
+        const companyName =
+            settingsRes.success && settingsRes.settings?.companyName
+                ? settingsRes.settings.companyName.trim()
+                : '';
+
+        const id = crypto.randomUUID();
+        const pwHash = hashPassword(password);
+        const routesJson = JSON.stringify(menuRoutes);
+        await sql`
+            INSERT INTO members (id, username, password_hash, first_name, last_name, company_name, menu_routes, sales_perakende, sales_toptan)
+            VALUES (
+                ${id},
+                ${username},
+                ${pwHash},
+                ${firstName},
+                ${lastName},
+                ${companyName},
+                ${routesJson}::jsonb,
+                ${salesPerakende},
+                ${salesToptan}
+            );
+        `;
+        revalidatePath('/ayarlar');
+        return { success: true as const, id };
+    } catch (error) {
+        console.error('createMember:', error);
+        return { success: false as const, error };
+    }
+}
+
+export async function deleteMember(memberId: string, currentUserId?: string) {
+    try {
+        await ensureMembersTable();
+        const id = (memberId || '').trim();
+        if (!id) return { success: false as const, error: 'id' };
+        if (currentUserId && id === currentUserId) return { success: false as const, error: 'self' };
+        const cnt = await sql`SELECT COUNT(*)::int AS c FROM members`;
+        if (Number((cnt[0] as { c: number }).c) <= 1) return { success: false as const, error: 'last' };
+        await sql`DELETE FROM members WHERE id = ${id}`;
+        revalidatePath('/ayarlar');
+        return { success: true as const };
+    } catch (error) {
+        console.error('deleteMember:', error);
+        return { success: false as const, error };
+    }
+}
+
+export async function updateMemberPassword(memberId: string, newPassword: string) {
+    try {
+        await ensureMembersTable();
+        const id = (memberId || '').trim();
+        const pw = newPassword || '';
+        if (!id) return { success: false as const, error: 'id' };
+        if (pw.length < 4) return { success: false as const, error: 'weak' };
+        const pwHash = hashPassword(pw);
+        await sql`UPDATE members SET password_hash = ${pwHash} WHERE id = ${id}`;
+        revalidatePath('/ayarlar');
+        return { success: true as const };
+    } catch (error) {
+        console.error('updateMemberPassword:', error);
+        return { success: false as const, error };
     }
 }

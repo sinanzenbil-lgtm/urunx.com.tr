@@ -12,6 +12,8 @@ import * as dbActions from '@/lib/actions';
 export default function CariYeniPage() {
   const [customerCode, setCustomerCode] = useState('');
   const [name, setName] = useState('');
+  const [openingBalanceType, setOpeningBalanceType] = useState<'ALACAK' | 'BORC'>('ALACAK');
+  const [openingBalanceAmount, setOpeningBalanceAmount] = useState('');
   const [saving, setSaving] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
@@ -20,17 +22,28 @@ export default function CariYeniPage() {
       toast.error('Cari ismi zorunlu');
       return;
     }
+    const openingAmount = Number((openingBalanceAmount || '0').replace(',', '.'));
+    if (!Number.isFinite(openingAmount) || openingAmount < 0) {
+      toast.error('Açılış bakiyesi sayı olmalı');
+      return;
+    }
+    const opening = openingBalanceType === 'ALACAK' ? openingAmount : -openingAmount;
     setSaving(true);
     const toastId = toast.loading('Kaydediliyor...');
     try {
-      const res = await dbActions.addCustomer({ customerCode: customerCode.trim(), name: name.trim() });
-      if (!res.success) throw new Error(String((res as any).error || 'failed'));
+      const res = await dbActions.addCustomer({
+        customerCode: customerCode.trim(),
+        name: name.trim(),
+        openingBalance: opening,
+      });
+      if (!res.success) throw new Error(String(res.error || 'failed'));
       toast.success('Cari eklendi', { id: toastId });
       setCustomerCode('');
       setName('');
+      setOpeningBalanceType('ALACAK');
+      setOpeningBalanceAmount('');
     } catch (err) {
       toast.error('Cari eklenirken hata oluştu', { id: toastId });
-      // eslint-disable-next-line no-console
       console.error(err);
     } finally {
       setSaving(false);
@@ -80,6 +93,37 @@ export default function CariYeniPage() {
                 className="bg-zinc-900/50 border-zinc-800"
               />
             </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-zinc-300">Açılış Bakiyesi</label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`border-zinc-700 ${openingBalanceType === 'ALACAK' ? 'bg-emerald-600/20 text-white border-emerald-500/60' : ''}`}
+                  onClick={() => setOpeningBalanceType('ALACAK')}
+                >
+                  Alacak
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`border-zinc-700 ${openingBalanceType === 'BORC' ? 'bg-red-600/20 text-white border-red-500/60' : ''}`}
+                  onClick={() => setOpeningBalanceType('BORC')}
+                >
+                  Borç
+                </Button>
+              </div>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={openingBalanceAmount}
+                onChange={(e) => setOpeningBalanceAmount(e.target.value)}
+                placeholder="Tutar girin"
+                className="bg-zinc-900/50 border-zinc-800"
+              />
+              <p className="text-xs text-zinc-500">Hareketlere 01.01.2000 tarihli Açılış Bakiyesi satırı olarak eklenir.</p>
+            </div>
             <div className="flex justify-end">
               <Button
                 type="submit"
@@ -96,4 +140,3 @@ export default function CariYeniPage() {
     </div>
   );
 }
-

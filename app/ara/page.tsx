@@ -4,13 +4,17 @@ import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStockStore } from '@/lib/store';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Search, Edit, Trash2, X, Save } from 'lucide-react';
+import { Search, Edit, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { StockItem } from '@/types';
 import * as dbActions from '@/lib/actions';
+
+/** Türkçe: binlik `.`, ondalık `,` (para birimi yok) */
+const formatTrPrice = (value: number) =>
+    new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 
 export default function SearchPage() {
     const [query, setQuery] = useState('');
@@ -69,36 +73,47 @@ export default function SearchPage() {
                     </div>
                 ) : (
                     sortedResults.map((item) => (
-                        <Card key={item.id} className="group hover:border-primary/50 transition-colors cursor-pointer" onClick={() => setTransactionsItem(item)}>
-                            <CardHeader className="pb-2">
-                                <CardTitle className="flex justify-between items-start">
-                                    <span className="truncate" title={item.name}>{item.name}</span>
-                                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setEditingItem(item)}>
-                                            <Edit size={16} />
-                                        </Button>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8 hover:text-red-500" onClick={() => handleDelete(item.id)}>
-                                            <Trash2 size={16} />
-                                        </Button>
-                                    </div>
-                                </CardTitle>
-                                <div className="text-xs text-zinc-500 font-mono">{item.barcode}</div>
-                            </CardHeader>
-                            <CardContent>
-                                <div className="aspect-video relative mb-4 rounded-md overflow-hidden bg-white/5 flex items-center justify-center">
+                        <Card
+                            key={item.id}
+                            className="group relative hover:border-primary/50 transition-colors cursor-pointer overflow-hidden"
+                            onClick={() => setTransactionsItem(item)}
+                        >
+                            <div
+                                className="absolute top-2 right-2 z-10 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditingItem(item)}>
+                                    <Edit size={14} />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-7 w-7 hover:text-red-500" onClick={() => handleDelete(item.id)}>
+                                    <Trash2 size={14} />
+                                </Button>
+                            </div>
+                            <CardContent className="p-3 pt-3">
+                                <div className="aspect-video relative mb-2 rounded-md overflow-hidden bg-white/5 flex items-center justify-center">
                                     {item.image ? (
                                         <img src={item.image} alt={item.name} className="object-cover w-full h-full" />
                                     ) : null}
                                 </div>
-                                <div className="grid grid-cols-2 gap-2 text-sm">
-                                    <div className="text-zinc-400">Marka</div>
-                                    <div className="text-right">{item.brand || '-'}</div>
-                                    <div className="text-zinc-400">Stok</div>
-                                    <div className="text-right font-bold text-white">{item.quantity}</div>
-                                    <div className="text-zinc-400">Alış</div>
-                                    <div className="text-right text-zinc-300">{Number(item.buyPrice) ?? 0} ₺</div>
-                                    <div className="text-zinc-400">Toptan Satış</div>
-                                    <div className="text-right font-bold text-primary">{item.sellPrice} ₺</div>
+                                <div className="mb-2 space-y-0.5 min-h-[2.5rem]">
+                                    <p className="text-xs font-medium text-white leading-snug line-clamp-2" title={item.name}>
+                                        {item.name}
+                                    </p>
+                                    <p className="text-[11px] text-zinc-500 leading-tight line-clamp-1" title={item.brand || ''}>
+                                        {item.brand || '—'}
+                                    </p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
+                                    <div className="text-zinc-500">Stok</div>
+                                    <div className="text-right font-semibold text-white tabular-nums">{item.quantity}</div>
+                                    <div className="text-zinc-500">Alış</div>
+                                    <div className="text-right text-zinc-300 tabular-nums">
+                                        {formatTrPrice(Number(item.buyPrice) || 0)} ₺
+                                    </div>
+                                    <div className="text-zinc-500">Toptan Satış</div>
+                                    <div className="text-right font-medium text-primary tabular-nums">
+                                        {formatTrPrice(Number(item.sellPrice) || 0)} ₺
+                                    </div>
                                 </div>
                             </CardContent>
                         </Card>

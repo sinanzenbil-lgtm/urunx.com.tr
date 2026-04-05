@@ -26,6 +26,7 @@ export default function ExitPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [cart, setCart] = useState<CartItem[]>([]);
     const [saveConfirmOpen, setSaveConfirmOpen] = useState(false);
+    const [savePending, setSavePending] = useState(false);
 
     const inputRef = useRef<HTMLInputElement>(null);
     const getItemByBarcode = useStockStore((state) => state.getItemByBarcode);
@@ -87,7 +88,7 @@ export default function ExitPage() {
     };
 
     const completeSale = async () => {
-        if (cart.length === 0) return;
+        if (cart.length === 0 || savePending) return;
 
         let hasError = false;
 
@@ -100,7 +101,7 @@ export default function ExitPage() {
 
         if (hasError) return;
 
-        setSaveConfirmOpen(false);
+        setSavePending(true);
         const toastId = toast.loading('Kaydediliyor...');
 
         const promises = cart.map(cartItem => {
@@ -122,10 +123,13 @@ export default function ExitPage() {
             await Promise.all(promises);
             toast.success(`${cart.length} kalem ürünün satışı tamamlandı.`, { id: toastId });
             setCart([]);
+            setSaveConfirmOpen(false);
             inputRef.current?.focus();
         } catch (error) {
             toast.error('Satış kaydedilirken bir hata oluştu', { id: toastId });
             console.error(error);
+        } finally {
+            setSavePending(false);
         }
     };
 
@@ -347,8 +351,18 @@ export default function ExitPage() {
                         </Button>
                     </div>
 
-                    <Dialog open={saveConfirmOpen} onOpenChange={setSaveConfirmOpen}>
-                        <DialogContent className="sm:max-w-md border-zinc-800">
+                    <Dialog
+                        open={saveConfirmOpen}
+                        onOpenChange={(open) => {
+                            if (!open && savePending) return;
+                            setSaveConfirmOpen(open);
+                        }}
+                    >
+                        <DialogContent
+                            className="sm:max-w-md border-zinc-800"
+                            onPointerDownOutside={(e) => savePending && e.preventDefault()}
+                            onEscapeKeyDown={(e) => savePending && e.preventDefault()}
+                        >
                             <DialogHeader>
                                 <DialogTitle>Satışı kaydet</DialogTitle>
                                 <DialogDescription>
@@ -356,12 +370,21 @@ export default function ExitPage() {
                                 </DialogDescription>
                             </DialogHeader>
                             <DialogFooter className="gap-2 sm:gap-0">
-                                <Button variant="outline" onClick={() => setSaveConfirmOpen(false)} className="border-zinc-700">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setSaveConfirmOpen(false)}
+                                    className="border-zinc-700"
+                                    disabled={savePending}
+                                >
                                     İptal
                                 </Button>
-                                <Button className="bg-red-600 hover:bg-red-700" onClick={completeSale}>
-                                    <Save className="w-4 h-4 mr-2" />
-                                    Kaydet
+                                <Button
+                                    className="bg-red-600 hover:bg-red-700 disabled:opacity-70"
+                                    onClick={() => void completeSale()}
+                                    disabled={savePending}
+                                >
+                                    <Save className="w-4 h-4 mr-2 shrink-0" />
+                                    {savePending ? 'Kaydediliyor...' : 'Kaydet'}
                                 </Button>
                             </DialogFooter>
                         </DialogContent>

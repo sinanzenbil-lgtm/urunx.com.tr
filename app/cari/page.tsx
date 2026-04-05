@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Users, PlusCircle, Search, Pencil, Trash2 } from 'lucide-react';
+import { Users, PlusCircle, Search, Pencil, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
 import { Customer } from '@/types';
 import * as dbActions from '@/lib/actions';
 
@@ -15,12 +15,18 @@ const currency = (value: number) =>
   new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(value) || 0);
 
 export default function CariListPage() {
+  type SortKey = 'customerCode' | 'name' | 'debtBalance' | 'creditBalance';
+
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [q, setQ] = useState('');
+  const [sortBy, setSortBy] = useState<SortKey>('customerCode');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [editOpen, setEditOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [editCode, setEditCode] = useState('');
   const [editName, setEditName] = useState('');
+  const [editOpeningBalanceType, setEditOpeningBalanceType] = useState<'ALACAK' | 'BORC'>('ALACAK');
+  const [editOpeningBalanceAmount, setEditOpeningBalanceAmount] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState<Customer | null>(null);
@@ -40,20 +46,33 @@ export default function CariListPage() {
     setEditing(c);
     setEditCode(c.customerCode || '');
     setEditName(c.name || '');
+    const openingBalance = Number(c.openingBalance) || 0;
+    setEditOpeningBalanceType(openingBalance < 0 ? 'BORC' : 'ALACAK');
+    setEditOpeningBalanceAmount(String(Math.abs(openingBalance)));
     setEditOpen(true);
   };
 
   const submitEdit = async () => {
     if (!editing) return;
     const name = editName.trim();
+    const openingAmount = Number((editOpeningBalanceAmount || '0').replace(',', '.'));
+    const openingBalance = editOpeningBalanceType === 'ALACAK' ? openingAmount : -openingAmount;
     if (!name) {
       toast.error('Cari ismi boş olamaz');
+      return;
+    }
+    if (!Number.isFinite(openingAmount) || openingAmount < 0) {
+      toast.error('Açılış bakiyesi sayı olmalı');
       return;
     }
     setSaving(true);
     const toastId = toast.loading('Cari güncelleniyor...');
     try {
-      const res = await dbActions.updateCustomer(editing.id, { customerCode: editCode.trim(), name });
+      const res = await dbActions.updateCustomer(editing.id, {
+        customerCode: editCode.trim(),
+        name,
+        openingBalance,
+      });
       if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
       const rows = await dbActions.getCustomers();
       setCustomers(rows || []);
@@ -103,6 +122,58 @@ export default function CariListPage() {
     });
   }, [customers, q]);
 
+  const compareCustomerCode = (a: Customer, b: Customer) => {
+    const aCode = (a.customerCode || '').trim();
+    const bCode = (b.customerCode || '').trim();
+
+    if (!aCode && !bCode) return (a.name || '').localeCompare(b.name || '', 'tr');
+    if (!aCode) return 1;
+    if (!bCode) return -1;
+
+    const aIsNumeric = /^\d+$/.test(aCode);
+    const bIsNumeric = /^\d+$/.test(bCode);
+
+    if (aIsNumeric && bIsNumeric) {
+      const aNum = Number(aCode);
+      const bNum = Number(bCode);
+      if (aNum !== bNum) return aNum - bNum;
+    }
+
+    if (aIsNumeric !== bIsNumeric) return aIsNumeric ? -1 : 1;
+
+    return aCode.localeCompare(bCode, 'tr', { numeric: true, sensitivity: 'base' });
+  };
+
+  const sorted = useMemo(() => {
+    const rows = [...filtered];
+    rows.sort((a, b) => {
+      let result = 0;
+      switch (sortBy) {
+        case 'customerCode':
+          result = compareCustomerCode(a, b);
+          break;
+        case 'name':
+          result = (a.name || '').localeCompare(b.name || '', 'tr', { sensitivity: 'base' });
+          break;
+        case 'debtBalance':
+          result = (Number(a.debtBalance) || 0) - (Number(b.debtBalance) || 0);
+          break;
+        case 'creditBalance':
+          result = (Number(a.creditBalance) || 0) - (Number(b.creditBalance) || 0);
+          break;
+        default:
+          result = 0;
+      }
+      return sortDir === 'asc' ? result : -result;
+    });
+    return rows;
+  }, [filtered, sortBy, sortDir]);
+
+  const handleSort = (key: SortKey, dir: 'asc' | 'desc') => {
+    setSortBy(key);
+    setSortDir(dir);
+  };
+
   return (
     <div className="space-y-6 animate-enter">
       <div className="flex items-center justify-between gap-4">
@@ -140,24 +211,56 @@ export default function CariListPage() {
             <table className="w-full text-sm text-left">
               <thead className="bg-zinc-900 border-b border-zinc-800 text-xs uppercase text-zinc-400">
                 <tr>
-                  <th className="px-6 py-4">Cari Kodu</th>
-                  <th className="px-6 py-4">Cari İsmi</th>
-                  <th className="px-6 py-4 text-right">Borç</th>
-                  <th className="px-6 py-4 text-right">Alacak</th>
+                  <th className="px-6 py-4">
+                    <div className="flex items-center gap-1">
+                      Cari Kodu
+                      <span className="inline-flex flex-col">
+                        <button type="button" onClick={() => handleSort('customerCode', 'asc')} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Artan"><ArrowUp className="w-3 h-3" /></button>
+                        <button type="button" onClick={() => handleSort('customerCode', 'desc')} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Azalan"><ArrowDown className="w-3 h-3" /></button>
+                      </span>
+                    </div>
+                  </th>
+                  <th className="px-6 py-4">
+                    <div className="flex items-center gap-1">
+                      Cari İsmi
+                      <span className="inline-flex flex-col">
+                        <button type="button" onClick={() => handleSort('name', 'asc')} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="A-Z"><ArrowUp className="w-3 h-3" /></button>
+                        <button type="button" onClick={() => handleSort('name', 'desc')} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Z-A"><ArrowDown className="w-3 h-3" /></button>
+                      </span>
+                    </div>
+                  </th>
+                  <th className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      Borç
+                      <span className="inline-flex flex-col">
+                        <button type="button" onClick={() => handleSort('debtBalance', 'asc')} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Düşükten yükseğe"><ArrowUp className="w-3 h-3" /></button>
+                        <button type="button" onClick={() => handleSort('debtBalance', 'desc')} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Yüksekten düşüğe"><ArrowDown className="w-3 h-3" /></button>
+                      </span>
+                    </div>
+                  </th>
+                  <th className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      Alacak
+                      <span className="inline-flex flex-col">
+                        <button type="button" onClick={() => handleSort('creditBalance', 'asc')} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Düşükten yükseğe"><ArrowUp className="w-3 h-3" /></button>
+                        <button type="button" onClick={() => handleSort('creditBalance', 'desc')} className="p-0.5 hover:bg-zinc-700 rounded text-zinc-500 hover:text-white" title="Yüksekten düşüğe"><ArrowDown className="w-3 h-3" /></button>
+                      </span>
+                    </div>
+                  </th>
                   <th className="px-6 py-4 text-right">Düzenle</th>
                   <th className="px-6 py-4 text-right">Sil</th>
                   <th className="px-6 py-4 text-right">Detay</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-800">
-                {filtered.length === 0 ? (
+                {sorted.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-6 py-12 text-center text-zinc-500">
                       Henüz cari yok.
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((c) => (
+                  sorted.map((c) => (
                     <tr key={c.id} className="hover:bg-zinc-900/50 transition-colors">
                       <td className="px-6 py-4 font-mono text-zinc-300">{c.customerCode || '-'}</td>
                       <td className="px-6 py-4 font-medium text-white">{c.name}</td>
@@ -207,7 +310,7 @@ export default function CariListPage() {
         <DialogContent className="sm:max-w-md border-zinc-800">
           <DialogHeader>
             <DialogTitle>Cari Düzenle</DialogTitle>
-            <DialogDescription>Cari kodu ve ismini güncelleyin.</DialogDescription>
+            <DialogDescription>Cari kodu, ismi ve açılış bakiyesini güncelleyin.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
@@ -217,6 +320,36 @@ export default function CariListPage() {
             <div className="space-y-2">
               <label className="text-sm font-medium text-zinc-300">Cari İsmi</label>
               <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Örn: ABC Ltd." />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-zinc-300">Açılış Bakiyesi</label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`border-zinc-700 ${editOpeningBalanceType === 'ALACAK' ? 'bg-emerald-600/20 text-white border-emerald-500/60' : ''}`}
+                  onClick={() => setEditOpeningBalanceType('ALACAK')}
+                >
+                  Alacak
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={`border-zinc-700 ${editOpeningBalanceType === 'BORC' ? 'bg-red-600/20 text-white border-red-500/60' : ''}`}
+                  onClick={() => setEditOpeningBalanceType('BORC')}
+                >
+                  Borç
+                </Button>
+              </div>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                value={editOpeningBalanceAmount}
+                onChange={(e) => setEditOpeningBalanceAmount(e.target.value)}
+                placeholder="Tutar girin"
+              />
+              <p className="text-xs text-zinc-500">Hareketlere 01.01.2000 tarihli açılış bakiyesi olarak yansır.</p>
             </div>
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
@@ -260,4 +393,3 @@ export default function CariListPage() {
     </div>
   );
 }
-
