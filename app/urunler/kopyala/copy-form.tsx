@@ -98,25 +98,6 @@ export default function CopyForm() {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }, []);
 
-  const duplicateChecks = useCallback(
-    (row: DraftRow) => {
-      const bc = row.barcode.trim();
-      const sc = row.stockCode.trim();
-      const conflicts: string[] = [];
-      if (bc && items.some((it) => it.barcode.trim() === bc)) conflicts.push('barkod');
-      if (sc && items.some((it) => (it.stockCode || '').trim().toLocaleLowerCase('tr-TR') === sc.toLocaleLowerCase('tr-TR'))) {
-        conflicts.push('stok kodu');
-      }
-      const otherRows = rows.filter((r) => r.key !== row.key);
-      if (bc && otherRows.some((r) => r.barcode.trim() === bc)) conflicts.push('aynı sayfadaki barkod');
-      if (sc && otherRows.some((r) => r.stockCode.trim().toLocaleLowerCase('tr-TR') === sc.toLocaleLowerCase('tr-TR'))) {
-        conflicts.push('aynı sayfadaki stok kodu');
-      }
-      return conflicts;
-    },
-    [items, rows]
-  );
-
   const handleSave = async () => {
     if (!source || rows.length === 0) return;
 
@@ -130,11 +111,6 @@ export default function CopyForm() {
       const sc = row.stockCode.trim();
       if (!bc && !sc) {
         toast.error('Her satırda barkod veya stok kodundan en az biri olmalı');
-        return;
-      }
-      const conflicts = duplicateChecks(row);
-      if (conflicts.length) {
-        toast.error(`Çakışma: ${conflicts.join(', ')} — satırı düzenleyin`);
         return;
       }
     }
