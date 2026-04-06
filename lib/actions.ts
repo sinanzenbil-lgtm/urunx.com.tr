@@ -15,6 +15,12 @@ import {
 } from '@/types';
 import { revalidatePath } from 'next/cache';
 
+/** Server Action yanıtı JSON olmalı; Postgres Error nesnesi dönmek 500 üretebilir */
+function safeActionError(err: unknown): string {
+    if (err instanceof Error) return err.message;
+    return String(err);
+}
+
 const OPENING_BALANCE_DEFAULT_DATE = '2000-01-01T00:00:00.000Z';
 const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
     companyName: '',
@@ -124,6 +130,42 @@ async function ensureItemsSchema() {
     await sql`ALTER TABLE items DROP CONSTRAINT IF EXISTS items_barcode_key;`;
     await sql`DROP INDEX IF EXISTS items_barcode_key;`;
     await sql`ALTER TABLE items ALTER COLUMN barcode DROP NOT NULL;`;
+    await sql`ALTER TABLE items DROP CONSTRAINT IF EXISTS items_stock_code_key;`;
+    await sql`DROP INDEX IF EXISTS items_stock_code_key;`;
+    await sql`DROP INDEX IF EXISTS items_stock_code_unique;`;
+}
+
+/** INSERT için undefined geçmemeli (Neon/serileştirme) */
+function normalizeItemForDb(item: StockItem) {
+    const name = String(item.name ?? '').trim() || 'İsimsiz';
+    const barcodeValue = (item.barcode ?? '').trim();
+    const stockCodeValue = (item.stockCode ?? '').trim();
+    const dbBarcode = barcodeValue.length > 0 ? barcodeValue : null;
+    const dbStockCode = stockCodeValue.length > 0 ? stockCodeValue : null;
+    const brand = (item.brand ?? '').trim() || null;
+    const description = (item.description ?? '').trim() || null;
+    const image =
+        item.image != null && String(item.image).length > 0 ? String(item.image) : null;
+    const buyPrice = Number.isFinite(Number(item.buyPrice)) ? Number(item.buyPrice) : 0;
+    const sellPrice = Number.isFinite(Number(item.sellPrice)) ? Number(item.sellPrice) : 0;
+    const vatRate = Number.isFinite(Number(item.vatRate)) ? Number(item.vatRate) : 0;
+    const quantity = Math.max(0, Math.floor(Number(item.quantity) || 0));
+    return {
+        id: item.id,
+        name,
+        dbBarcode,
+        dbStockCode,
+        brand,
+        description,
+        image,
+        buyPrice,
+        sellPrice,
+        vatRate,
+        quantity,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        transactions: Array.isArray(item.transactions) ? item.transactions : [],
+    };
 }
 
 async function ensureCustomerPaymentsSchema() {
@@ -156,26 +198,23 @@ async function ensureCompanySettingsSchema() {
 export async function addItem(item: StockItem) {
     try {
         await ensureItemsSchema();
-        const barcodeValue = (item.barcode ?? '').trim();
-        const stockCodeValue = (item.stockCode ?? '').trim();
-        const dbBarcode = barcodeValue.length > 0 ? barcodeValue : null;
-        const dbStockCode = stockCodeValue.length > 0 ? stockCodeValue : null;
+        const row = normalizeItemForDb(item);
 
         await sql`
       INSERT INTO items (
         id, barcode, stock_code, name, image, description, brand, 
         vat_rate, buy_price, sell_price, quantity, created_at, updated_at
       ) VALUES (
-        ${item.id}, ${dbBarcode}, ${dbStockCode}, ${item.name}, ${item.image}, 
-        ${item.description}, ${item.brand}, ${item.vatRate}, ${item.buyPrice}, 
-        ${item.sellPrice}, ${item.quantity}, ${item.createdAt}, ${item.updatedAt}
+        ${row.id}, ${row.dbBarcode}, ${row.dbStockCode}, ${row.name}, ${row.image}, 
+        ${row.description}, ${row.brand}, ${row.vatRate}, ${row.buyPrice}, 
+        ${row.sellPrice}, ${row.quantity}, ${row.createdAt}, ${row.updatedAt}
       )
     `;
         revalidatePath('/urunler');
         return { success: true };
     } catch (error) {
         console.error('Error adding item:', error);
-        return { success: false, error };
+        return { success: false, error: safeActionError(error) };
     }
 }
 
@@ -203,7 +242,7 @@ export async function updateItem(id: string, updates: Partial<StockItem>) {
         return { success: true };
     } catch (error) {
         console.error('Error updating item:', error);
-        return { success: false, error };
+        return { success: false, error: safeActionError(error) };
     }
 }
 
@@ -214,7 +253,7 @@ export async function removeItem(id: string) {
         return { success: true };
     } catch (error) {
         console.error('Error removing item:', error);
-        return { success: false, error };
+        return { success: false, error: safeActionError(error) };
     }
 }
 
@@ -226,11 +265,12 @@ export async function addTransaction(itemId: string, transaction: Transaction) {
             (unitPrice > 0 ? unitPrice * (Number(transaction.quantity) || 0) : 0);
         const customerId = (transaction.customerId || '').trim() || null;
         const kind = String(transaction.kind || 'NORMAL');
+        const channel = transaction.channel != null ? String(transaction.channel) : null;
 
         // 1. Add transaction
         await sql`
       INSERT INTO transactions (id, item_id, customer_id, date, type, kind, quantity, channel, unit_price, total_price)
-      VALUES (${transaction.id}, ${itemId}, ${customerId}, ${transaction.date}, ${transaction.type}, ${kind}, ${transaction.quantity}, ${transaction.channel}, ${unitPrice}, ${totalPrice})
+      VALUES (${transaction.id}, ${itemId}, ${customerId}, ${transaction.date}, ${transaction.type}, ${kind}, ${transaction.quantity}, ${channel}, ${unitPrice}, ${totalPrice})
     `;
 
         // 2. Update item quantity
@@ -252,7 +292,7 @@ export async function addTransaction(itemId: string, transaction: Transaction) {
         return { success: true };
     } catch (error) {
         console.error('Error adding transaction:', error);
-        return { success: false, error };
+        return { success: false, error: safeActionError(error) };
     }
 }
 
@@ -267,27 +307,25 @@ export async function bulkAddItems(items: StockItem[]) {
 
             // Batch insert items using individual queries (Neon limitation)
             for (const item of batch) {
-                const barcodeValue = (item.barcode ?? '').trim();
-                const stockCodeValue = (item.stockCode ?? '').trim();
-                const dbBarcode = barcodeValue.length > 0 ? barcodeValue : null;
-                const dbStockCode = stockCodeValue.length > 0 ? stockCodeValue : null;
+                const row = normalizeItemForDb(item);
 
                 await sql`
                     INSERT INTO items (
                         id, barcode, stock_code, name, image, description, brand, 
                         vat_rate, buy_price, sell_price, quantity, created_at, updated_at
                     ) VALUES (
-                        ${item.id}, ${dbBarcode}, ${dbStockCode}, ${item.name}, ${item.image}, 
-                        ${item.description}, ${item.brand}, ${item.vatRate}, ${item.buyPrice}, 
-                        ${item.sellPrice}, ${item.quantity}, ${item.createdAt}, ${item.updatedAt}
+                        ${row.id}, ${row.dbBarcode}, ${row.dbStockCode}, ${row.name}, ${row.image}, 
+                        ${row.description}, ${row.brand}, ${row.vatRate}, ${row.buyPrice}, 
+                        ${row.sellPrice}, ${row.quantity}, ${row.createdAt}, ${row.updatedAt}
                     )
                 `;
             }
 
             // Batch insert transactions
             for (const item of batch) {
-                if (item.transactions && item.transactions.length > 0) {
-                    for (const t of item.transactions) {
+                const row = normalizeItemForDb(item);
+                if (row.transactions.length > 0) {
+                    for (const t of row.transactions) {
                         try {
                             const unitPrice = Number(t.unitPrice) || 0;
                             const totalPrice =
@@ -295,9 +333,10 @@ export async function bulkAddItems(items: StockItem[]) {
                                 (unitPrice > 0 ? unitPrice * (Number(t.quantity) || 0) : 0);
                             const customerId = String(t.customerId || '').trim() || null;
                             const kind = String(t.kind || 'NORMAL');
+                            const channel = t.channel != null ? String(t.channel) : null;
                             await sql`
                                 INSERT INTO transactions (id, item_id, customer_id, date, type, kind, quantity, channel, unit_price, total_price)
-                                VALUES (${t.id ?? crypto.randomUUID()}, ${item.id}, ${customerId}, ${t.date}, ${t.type}, ${kind}, ${t.quantity}, ${t.channel}, ${unitPrice}, ${totalPrice})
+                                VALUES (${t.id ?? crypto.randomUUID()}, ${row.id}, ${customerId}, ${t.date}, ${t.type}, ${kind}, ${t.quantity}, ${channel}, ${unitPrice}, ${totalPrice})
                             `;
                         } catch {
                             // Skip if transaction already exists
@@ -312,7 +351,7 @@ export async function bulkAddItems(items: StockItem[]) {
         return { success: true };
     } catch (error) {
         console.error('Error bulk adding items:', error);
-        return { success: false, error };
+        return { success: false, error: safeActionError(error) };
     }
 }
 
@@ -323,7 +362,7 @@ export async function bulkRemoveItems(ids: string[]) {
         return { success: true };
     } catch (error) {
         console.error('Error bulk removing items:', error);
-        return { success: false, error };
+        return { success: false, error: safeActionError(error) };
     }
 }
 

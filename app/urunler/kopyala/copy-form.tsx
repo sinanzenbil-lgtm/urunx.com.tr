@@ -143,13 +143,18 @@ export default function CopyForm() {
     const toastId = toast.loading('Kopyalar kaydediliyor...');
     try {
       const result = await dbActions.bulkAddItems(newItems);
-      if (!result.success) throw new Error('bulk-fail');
+      if (!result.success) {
+        const msg = typeof result.error === 'string' ? result.error : 'Kayıt başarısız';
+        toast.error(msg, { id: toastId });
+        return;
+      }
       newItems.forEach((it) => addItem(it));
       toast.success(`${newItems.length} ürün kaydedildi`, { id: toastId });
       router.push('/urunler');
       router.refresh();
-    } catch {
-      toast.error('Kayıt sırasında hata oluştu', { id: toastId });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Kayıt sırasında hata oluştu';
+      toast.error(msg, { id: toastId });
     } finally {
       setSaving(false);
     }
