@@ -53,18 +53,16 @@ export type DraftRow = {
 
 function buildDraftsFromSource(source: StockItem, count: number): DraftRow[] {
   const baseSc = (source.stockCode || '').trim();
-  const baseBc = (source.barcode || '').trim();
   const rows: DraftRow[] = [];
   for (let i = 1; i <= count; i++) {
-    const suffix = `-K${i}`;
     rows.push({
       key: `row-${i}-${source.id}`,
       image: source.image || '',
       brand: source.brand || '',
       name: source.name,
       description: source.description || '',
-      stockCode: baseSc ? `${baseSc}${suffix}` : `KOPYA${suffix}`,
-      barcode: baseBc ? `${baseBc}${suffix}` : '',
+      stockCode: baseSc,
+      barcode: '',
       vatRate: String(source.vatRate ?? 20),
       buyPrice: formatTrMoney(Number(source.buyPrice) || 0),
       sellPrice: formatTrMoney(Number(source.sellPrice) || 0),
