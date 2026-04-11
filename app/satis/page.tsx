@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { Scan, Search, X, Package, Save, ShoppingCart, User, Building2, Trash2, Users, PlusCircle } from 'lucide-react';
+import { Scan, Search, X, Package, Save, ShoppingCart, User, Building2, Trash2, Users, PlusCircle, Loader2 } from 'lucide-react';
 import { Customer, StockItem } from '@/types';
 import * as dbActions from '@/lib/actions';
 import { v4 as uuidv4 } from 'uuid';
@@ -41,6 +41,7 @@ export default function SatisPage() {
   const [newCustomerCode, setNewCustomerCode] = useState('');
   const [newCustomerName, setNewCustomerName] = useState('');
   const [newCustomerSaving, setNewCustomerSaving] = useState(false);
+  const [saleSaving, setSaleSaving] = useState(false);
 
   const [barcodeOrStockCode, setBarcodeOrStockCode] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -211,7 +212,7 @@ export default function SatisPage() {
   }, [cart]);
 
   const saveSale = async () => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || saleSaving) return;
 
     if (cartChannel === 'Toptan' && !selectedCustomerId) {
       toast.error('Toptan satış için cari seçiniz');
@@ -234,6 +235,7 @@ export default function SatisPage() {
     }
 
     const toastId = toast.loading('Satış kaydediliyor...');
+    setSaleSaving(true);
     const now = new Date().toISOString();
 
     try {
@@ -258,13 +260,17 @@ export default function SatisPage() {
       const anyFail = results.some((r) => !r.success);
       if (anyFail) throw new Error('DB sync failed');
 
-      toast.success('Satış kaydedildi', { id: toastId });
+      toast.dismiss(toastId);
+      toast.success('Satış kaydedildi');
       setCart([]);
       setActiveCartId(null);
       focusScan();
     } catch (err) {
-      toast.error('Satış kaydedilirken hata oluştu', { id: toastId });
+      toast.dismiss(toastId);
+      toast.error('Satış kaydedilirken hata oluştu');
       console.error(err);
+    } finally {
+      setSaleSaving(false);
     }
   };
 
@@ -778,11 +784,20 @@ export default function SatisPage() {
                         <Button
                           type="button"
                           className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white gap-2 shadow-[0_0_20px_-5px_rgba(16,185,129,0.45)]"
-                          onClick={saveSale}
-                          disabled={cart.length === 0}
+                          onClick={() => void saveSale()}
+                          disabled={cart.length === 0 || saleSaving}
                         >
-                          <Save className="w-5 h-5" />
-                          Satışı Kaydet ({currency(cartTotals.totalAmount)})
+                          {saleSaving ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              Kaydediliyor…
+                            </>
+                          ) : (
+                            <>
+                              <Save className="w-5 h-5" />
+                              Satışı Kaydet ({currency(cartTotals.totalAmount)})
+                            </>
+                          )}
                         </Button>
                       </div>
                     </div>

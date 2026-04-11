@@ -214,7 +214,7 @@ export default function CopyForm() {
                 <col className="w-[4.5rem]" />
                 <col className="w-[7rem]" />
                 <col className="w-[7rem]" />
-                <col className="w-[4.5rem]" />
+                <col className="w-[6.5rem] min-w-[6.5rem]" />
               </colgroup>
               <thead className="bg-zinc-900 border-b border-zinc-800 text-[11px] uppercase tracking-wide text-zinc-400">
                 <tr>
@@ -307,13 +307,15 @@ export default function CopyForm() {
                         title="Binlik ayırıcı nokta (örn. 12.345,67)"
                       />
                     </td>
-                    <td className="px-2 py-2">
+                    <td className="px-2 py-2 w-[6.5rem] min-w-[6.5rem]">
                       <Input
                         type="number"
                         min="0"
+                        step="1"
                         value={row.quantity}
                         onChange={(e) => updateRow(row.key, { quantity: e.target.value })}
-                        className="h-9 text-xs text-center bg-zinc-950 border-zinc-800"
+                        className="h-9 text-sm tabular-nums text-center bg-zinc-950 border-zinc-800 w-full min-w-[5.5rem] px-2 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        title="Stok adedi (örn. 100–999)"
                       />
                     </td>
                   </tr>
