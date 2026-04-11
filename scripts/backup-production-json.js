@@ -2,6 +2,9 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { neon } = require('@neondatabase/serverless');
 require('dotenv').config({ path: path.join(process.cwd(), '.env.production.local') });
+if (!process.env.DATABASE_URL) {
+  require('dotenv').config({ path: path.join(process.cwd(), '.env.local') });
+}
 
 function getTimestamp() {
   return new Date().toISOString().replace(/[:.]/g, '-');
@@ -19,7 +22,7 @@ async function readTable(tableName, query) {
 async function run() {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) {
-    throw new Error('DATABASE_URL bulunamadi. Once `vercel env pull` calistirin.');
+    throw new Error('DATABASE_URL bulunamadi (.env.production.local veya .env.local).');
   }
 
   const sql = neon(databaseUrl);
@@ -40,7 +43,7 @@ async function run() {
       column_default as "columnDefault"
     FROM information_schema.columns
     WHERE table_schema = 'public'
-      AND table_name = ANY(${['customers', 'customer_payments', 'items', 'transactions']})
+      AND table_name = ANY(${['customers', 'customer_payments', 'items', 'transactions', 'company_settings', 'members']})
     ORDER BY table_name, ordinal_position
   `;
 

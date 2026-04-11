@@ -40,6 +40,7 @@ const TABLE_ORDER = [
   'customers',
   'items',
   'company_settings',
+  'members',
   'customer_payments',
   'transactions',
 ];
@@ -50,6 +51,7 @@ const ORDER_BY = {
   items: 'updated_at DESC',
   transactions: 'date DESC',
   company_settings: 'updated_at DESC',
+  members: 'created_at ASC',
 };
 
 async function fetchAll(sql, table) {

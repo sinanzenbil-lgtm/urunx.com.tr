@@ -1,17 +1,17 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useStockStore } from '@/lib/store';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import ExcelImportModal from '@/components/excel-import-modal';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { StockItem } from '@/types';
-import { Package, Scan, Search, Edit, X, PlusCircle, MinusCircle, Trash2, Download, ArrowUp, ArrowDown, Copy, Files } from 'lucide-react';
+import { Package, Search, Edit, X, PlusCircle, MinusCircle, Trash2, Download, ArrowUp, ArrowDown, Copy, Files } from 'lucide-react';
 import * as dbActions from '@/lib/actions';
 import { cn } from '@/lib/utils';
 import * as XLSX from 'xlsx';
@@ -19,12 +19,13 @@ import * as XLSX from 'xlsx';
 const formatPriceNoSymbol = (value: number) =>
     new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 
+const LIST_PAGE_SIZE = 20;
+
 export default function ProductsPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const urlBrand = (searchParams.get('marka') || '').trim();
     const editIdParam = (searchParams.get('duzenle') || '').trim();
-    const items = useStockStore((state) => state.items);
     const updateItem = useStockStore((state) => state.updateItem);
     const removeItem = useStockStore((state) => state.removeItem);
     const addTransaction = useStockStore((state) => state.addTransaction);
@@ -47,6 +48,14 @@ export default function ProductsPage() {
     // Default: sort by product name (A-Z)
     const [sortBy, setSortBy] = useState<SortKey>('name');
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+    const [listExpanded, setListExpanded] = useState(false);
+    const [listItems, setListItems] = useState<StockItem[]>([]);
+    const [listTotal, setListTotal] = useState(0);
+    const [listLoading, setListLoading] = useState(true);
+    const [listError, setListError] = useState<string | null>(null);
+    const [allItemsCount, setAllItemsCount] = useState(0);
+    const [brandAggregates, setBrandAggregates] = useState<{ brand: string; itemCount: number; totalQty: number }[]>([]);
+    const listTotalRef = useRef(0);
 
     // Debounce arama: yazmayı bırakınca filtre çalışsın (performans)
     useEffect(() => {
@@ -54,68 +63,85 @@ export default function ProductsPage() {
         return () => clearTimeout(t);
     }, [searchInput]);
 
+    useEffect(() => {
+        setListExpanded(false);
+        setSelectedIds([]);
+    }, [searchQuery, selectedBrand]);
+
+    const refreshMeta = useCallback(async () => {
+        try {
+            const [count, brands] = await Promise.all([
+                dbActions.getItemsTotalCount(),
+                dbActions.getItemBrandAggregates(),
+            ]);
+            setAllItemsCount(count);
+            setBrandAggregates(brands);
+        } catch {
+            /* özet isteğe bağlı */
+        }
+    }, []);
+
+    const fetchList = useCallback(async () => {
+        setListLoading(true);
+        setListError(null);
+        try {
+            const limit = listExpanded
+                ? Math.max(listTotalRef.current, LIST_PAGE_SIZE)
+                : LIST_PAGE_SIZE;
+            const { items: fetchedItems, total } = await dbActions.getItemsPaginated({
+                limit,
+                offset: 0,
+                search: searchQuery.trim() || undefined,
+                brand: selectedBrand || undefined,
+                sortBy,
+                sortDir,
+            });
+            listTotalRef.current = total;
+            setListTotal(total);
+            setListItems(fetchedItems);
+            setSelectedIds((prev) => prev.filter((id) => fetchedItems.some((i) => i.id === id)));
+        } catch {
+            setListError('Liste yüklenemedi');
+            toast.error('Ürün listesi alınamadı');
+            setListItems([]);
+            setListTotal(0);
+            listTotalRef.current = 0;
+        } finally {
+            setListLoading(false);
+        }
+    }, [searchQuery, selectedBrand, sortBy, sortDir, listExpanded]);
+
+    useEffect(() => {
+        void refreshMeta();
+    }, [refreshMeta]);
+
+    useEffect(() => {
+        void fetchList();
+    }, [fetchList]);
+
     const editItemFromParam = useMemo(() => {
         if (!editIdParam || dismissedEditParam === editIdParam) return null;
-        return items.find((item) => item.id === editIdParam) || null;
-    }, [editIdParam, dismissedEditParam, items]);
+        return listItems.find((item) => item.id === editIdParam) || null;
+    }, [editIdParam, dismissedEditParam, listItems]);
 
     const activeEditingItem = editingItem ?? editItemFromParam;
 
-    // Markalar: toplam stok adedine göre çoktan aza; eşitse ada göre (tr)
-    const uniqueBrands = useMemo(() => {
-        const totals = new Map<string, number>();
-        for (const item of items) {
-            const b = (item.brand || '').trim();
-            if (!b) continue;
-            totals.set(b, (totals.get(b) || 0) + (Number(item.quantity) || 0));
-        }
-        return Array.from(totals.entries())
-            .sort((a, b) => {
-                const dq = b[1] - a[1];
-                if (dq !== 0) return dq;
-                return a[0].localeCompare(b[0], 'tr');
-            })
-            .map(([brand]) => brand);
-    }, [items]);
-
-    const toTrLower = (s: string) => (s || '').toLocaleLowerCase('tr-TR');
-    const filteredItems = useMemo(() => {
-        const q = searchQuery.trim().toLocaleLowerCase('tr-TR');
-        if (!q) {
-            return selectedBrand ? items.filter((item) => item.brand === selectedBrand) : items;
-        }
-        return items.filter((item) => {
-            const matchesBrand = !selectedBrand || item.brand === selectedBrand;
-            if (!matchesBrand) return false;
-            return toTrLower(item.name).includes(q) ||
-                toTrLower(item.barcode).includes(q) ||
-                toTrLower(item.stockCode || '').includes(q) ||
-                toTrLower(item.brand || '').includes(q);
-        });
-    }, [items, searchQuery, selectedBrand]);
-
-    const sortedItems = useMemo(() => {
-        if (!sortBy) return filteredItems;
-        return [...filteredItems].sort((a, b) => {
-            let aVal: string | number = '';
-            let bVal: string | number = '';
-            switch (sortBy) {
-                case 'name': aVal = (a.name || '').toLocaleLowerCase('tr-TR'); bVal = (b.name || '').toLocaleLowerCase('tr-TR'); break;
-                case 'brand': aVal = (a.brand || '').toLocaleLowerCase('tr-TR'); bVal = (b.brand || '').toLocaleLowerCase('tr-TR'); break;
-                case 'stockCode': aVal = (a.stockCode || '').toLocaleLowerCase('tr-TR'); bVal = (b.stockCode || '').toLocaleLowerCase('tr-TR'); break;
-                case 'quantity': aVal = Number(a.quantity) ?? 0; bVal = Number(b.quantity) ?? 0; break;
-                case 'buyPrice': aVal = Number(a.buyPrice) ?? 0; bVal = Number(b.buyPrice) ?? 0; break;
-                case 'sellPrice': aVal = Number(a.sellPrice) ?? 0; bVal = Number(b.sellPrice) ?? 0; break;
-                default: return 0;
+    useEffect(() => {
+        if (!editIdParam || dismissedEditParam === editIdParam) return;
+        if (listItems.some((i) => i.id === editIdParam)) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const item = await dbActions.getItemById(editIdParam);
+                if (!cancelled && item) setEditingItem(item);
+            } catch {
+                if (!cancelled) toast.error('Ürün bulunamadı');
             }
-            if (typeof aVal === 'string' && typeof bVal === 'string') {
-                const cmp = aVal.localeCompare(bVal, 'tr');
-                return sortDir === 'asc' ? cmp : -cmp;
-            }
-            const cmp = (aVal as number) - (bVal as number);
-            return sortDir === 'asc' ? cmp : -cmp;
-        });
-    }, [filteredItems, sortBy, sortDir]);
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [editIdParam, dismissedEditParam, listItems]);
 
     const handleSort = (key: SortKey, dir: 'asc' | 'desc') => {
         setSortBy(key);
@@ -123,17 +149,29 @@ export default function ProductsPage() {
     };
 
     const handleExportExcel = () => {
-        if (sortedItems.length === 0) {
+        if (listTotal === 0) {
             toast.error('İndirilecek ürün bulunamadı');
             return;
         }
 
         const toastId = toast.loading('İndiriliyor...');
 
-        const runExport = () => {
+        const runExport = async () => {
             try {
+                const { items: rows } = await dbActions.getItemsPaginated({
+                    limit: Math.max(listTotal, 1),
+                    offset: 0,
+                    search: searchQuery.trim() || undefined,
+                    brand: selectedBrand || undefined,
+                    sortBy,
+                    sortDir,
+                });
+                if (rows.length === 0) {
+                    toast.error('İndirilecek ürün bulunamadı', { id: toastId });
+                    return;
+                }
                 const headers = ['UrunAdi', 'Barkod', 'StokKodu', 'Marka', 'AlisFiyati', 'SatisFiyati', 'StokAdedi', 'KDV'];
-                const rows = sortedItems.map((item) => [
+                const dataRows = rows.map((item) => [
                     String(item.name ?? ''),
                     String(item.barcode ?? ''),
                     String(item.stockCode ?? ''),
@@ -144,7 +182,7 @@ export default function ProductsPage() {
                     Number(item.vatRate) || 0,
                 ]);
 
-                const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+                const worksheet = XLSX.utils.aoa_to_sheet([headers, ...dataRows]);
                 const workbook = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(workbook, worksheet, 'Urunler');
 
@@ -169,7 +207,7 @@ export default function ProductsPage() {
                         // both methods failed
                     }
                 }
-                if (done) toast.success(`Excel indirildi (${sortedItems.length} ürün)`, { id: toastId });
+                if (done) toast.success(`Excel indirildi (${rows.length} ürün)`, { id: toastId });
                 else toast.error('Excel indirilirken bir hata oluştu', { id: toastId });
             } catch (err) {
                 console.error(err);
@@ -177,14 +215,14 @@ export default function ProductsPage() {
             }
         };
 
-        setTimeout(runExport, 100);
+        void runExport();
     };
 
     const toggleSelectAll = () => {
-        if (selectedIds.length === sortedItems.length) {
+        if (selectedIds.length === listItems.length && listItems.length > 0) {
             setSelectedIds([]);
         } else {
-            setSelectedIds(sortedItems.map(item => item.id));
+            setSelectedIds(listItems.map(item => item.id));
         }
     };
 
@@ -203,6 +241,8 @@ export default function ProductsPage() {
             toast.success('Seçili ürünler silindi');
             setSelectedIds([]);
             setIsBulkDeleteOpen(false);
+            await refreshMeta();
+            await fetchList();
         } else {
             toast.error('Silme işlemi başarısız');
         }
@@ -221,6 +261,8 @@ export default function ProductsPage() {
         if (result.success) {
             updateItem(activeEditingItem.id, activeEditingItem);
             toast.success('Ürün güncellendi');
+            await refreshMeta();
+            await fetchList();
         } else {
             toast.error('Giriş yapılamadı / Kayıt hatası');
         }
@@ -320,6 +362,7 @@ export default function ProductsPage() {
         if (result.success) {
             addTransaction(transactionModal.item.id, newTransaction);
             toast.success(transactionModal.type === 'IN' ? 'Stok Eklendi' : 'Satış Yapıldı / Stoktan Düştü');
+            await fetchList();
         } else {
             toast.error('Kayıt yapılırken bir hata oluştu');
         }
@@ -333,7 +376,15 @@ export default function ProductsPage() {
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight">Ürün Listesi</h1>
-                        <p className="text-zinc-500">Kayıtlı tüm ürünler ({items.length})</p>
+                        <p className="text-zinc-500">
+                            Veritabanında {allItemsCount} ürün
+                            {(searchQuery.trim() || selectedBrand) && (
+                                <span className="text-zinc-600"> · Filtre: {listTotal} eşleşme</span>
+                            )}
+                            {listTotal > LIST_PAGE_SIZE && !listExpanded && (
+                                <span className="text-zinc-600"> · Sunucudan ilk {LIST_PAGE_SIZE} yüklendi</span>
+                            )}
+                        </p>
                     </div>
                     <div className="flex gap-2">
                         {selectedIds.length === 1 && (
@@ -359,7 +410,12 @@ export default function ProductsPage() {
                                 Seçilenleri Sil ({selectedIds.length})
                             </Button>
                         )}
-                        <ExcelImportModal />
+                        <ExcelImportModal
+                            onAfterImport={() => {
+                                void refreshMeta();
+                                void fetchList();
+                            }}
+                        />
                         <Button
                             variant="outline"
                             onClick={handleExportExcel}
@@ -394,10 +450,10 @@ export default function ProductsPage() {
                         onChange={(e) => setSelectedBrandOverride(e.target.value)}
                         className="flex-1 h-10 px-3 rounded-md bg-zinc-900/50 border border-zinc-800 text-white focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50 transition-colors"
                     >
-                        <option value="">Tüm Markalar ({items.length})</option>
-                        {uniqueBrands.map((brand) => (
+                        <option value="">Tüm Markalar ({allItemsCount})</option>
+                        {brandAggregates.map(({ brand, itemCount }) => (
                             <option key={brand} value={brand}>
-                                {brand} ({items.filter(item => item.brand === brand).length})
+                                {brand} ({itemCount})
                             </option>
                         ))}
                     </select>
@@ -415,16 +471,21 @@ export default function ProductsPage() {
                 </div>
             </div>
 
-            <Card>
+                       <Card>
                 <CardContent className="p-0">
                     <div className="relative w-full overflow-auto">
+                        {listLoading && (
+                            <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-950/50 text-sm text-zinc-400">
+                                Yükleniyor…
+                            </div>
+                        )}
                         <table className="w-full text-xs text-left">
                             <thead className="bg-zinc-900 border-b border-zinc-800 text-[11px] uppercase tracking-wide text-zinc-400">
                                 <tr>
                                     <th className="px-3 py-2 w-8">
                                         <input
                                             type="checkbox"
-                                            checked={selectedIds.length > 0 && selectedIds.length === sortedItems.length}
+                                            checked={selectedIds.length > 0 && selectedIds.length === listItems.length && listItems.length > 0}
                                             onChange={toggleSelectAll}
                                             className="w-4 h-4 accent-primary rounded"
                                         />
@@ -490,14 +551,18 @@ export default function ProductsPage() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-800">
-                                {sortedItems.length === 0 ? (
+                                {listTotal === 0 && !listLoading ? (
                                     <tr>
                                         <td colSpan={10} className="px-6 py-10 text-center text-zinc-500">
-                                            {items.length === 0 ? "Henüz ürün eklenmemiş." : "Aranan kriterlere uygun ürün bulunamadı."}
+                                            {listError
+                                                ? listError
+                                                : allItemsCount === 0
+                                                    ? 'Henüz ürün eklenmemiş.'
+                                                    : 'Aranan kriterlere uygun ürün bulunamadı.'}
                                         </td>
                                     </tr>
                                 ) : (
-                                    sortedItems.map((item) => (
+                                    listItems.map((item) => (
                                         <tr key={item.id} className={cn(
                                             "hover:bg-zinc-900/50 transition-colors group",
                                             selectedIds.includes(item.id) && "bg-primary/5"
@@ -680,6 +745,31 @@ export default function ProductsPage() {
                             </tbody>
                         </table>
                     </div>
+                    {listTotal > LIST_PAGE_SIZE && (
+                        <div className="flex justify-center py-4 px-4 border-t border-zinc-800 bg-zinc-950/40">
+                            {!listExpanded ? (
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="border-zinc-700 text-zinc-200 hover:bg-zinc-900"
+                                    disabled={listLoading}
+                                    onClick={() => setListExpanded(true)}
+                                >
+                                    Tümünü göster ({listTotal} ürün)
+                                </Button>
+                            ) : (
+                                                               <Button
+                                    type="button"
+                                    variant="ghost"
+                                    className="text-zinc-400 hover:text-white"
+                                    disabled={listLoading}
+                                    onClick={() => setListExpanded(false)}
+                                >
+                                    İlk {LIST_PAGE_SIZE} ürünü göster
+                                </Button>
+                            )}
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
@@ -941,6 +1031,8 @@ export default function ProductsPage() {
                                 if (result.success) {
                                     removeItem(deletingId);
                                     toast.success('Ürün silindi');
+                                    await refreshMeta();
+                                    await fetchList();
                                 } else {
                                     toast.error('Silme işlemi başarısız');
                                 }

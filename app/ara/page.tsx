@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useStockStore } from '@/lib/store';
 import { Input } from '@/components/ui/input';
@@ -16,21 +16,60 @@ import * as dbActions from '@/lib/actions';
 const formatTrPrice = (value: number) =>
     new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 
+const PAGE_SIZE = 20;
+
 export default function SearchPage() {
     const [query, setQuery] = useState('');
+    const [searchQuery, setSearchQuery] = useState('');
     const [editingItem, setEditingItem] = useState<StockItem | null>(null);
     const [transactionsItem, setTransactionsItem] = useState<StockItem | null>(null);
+    const [listItems, setListItems] = useState<StockItem[]>([]);
+    const [listTotal, setListTotal] = useState(0);
+    const [listLoading, setListLoading] = useState(true);
+    const [listExpanded, setListExpanded] = useState(false);
+    const listTotalRef = useRef(0);
 
-    const searchItems = useStockStore((state) => state.searchItems);
     const updateItem = useStockStore((state) => state.updateItem);
     const removeItem = useStockStore((state) => state.removeItem);
 
-    // If query is empty, show all items (or slice of them). 
-    // searchItems return all containing empty string which is everything.
-    const results = searchItems(query);
-    const sortedResults = useMemo(() => {
-        return [...results].sort((a, b) => (a.name || '').localeCompare((b.name || ''), 'tr'));
-    }, [results]);
+    useEffect(() => {
+        const t = setTimeout(() => setSearchQuery(query), 220);
+        return () => clearTimeout(t);
+    }, [query]);
+
+    useEffect(() => {
+        setListExpanded(false);
+    }, [searchQuery]);
+
+    const fetchList = useCallback(async () => {
+        setListLoading(true);
+        try {
+            const limit = listExpanded
+                ? Math.max(listTotalRef.current, PAGE_SIZE)
+                : PAGE_SIZE;
+            const { items, total } = await dbActions.getItemsPaginated({
+                limit,
+                offset: 0,
+                search: searchQuery.trim() || undefined,
+                sortBy: 'name',
+                sortDir: 'asc',
+            });
+            listTotalRef.current = total;
+            setListTotal(total);
+            setListItems(items);
+        } catch {
+            toast.error('Arama sonuçları yüklenemedi');
+            setListItems([]);
+            setListTotal(0);
+            listTotalRef.current = 0;
+        } finally {
+            setListLoading(false);
+        }
+    }, [searchQuery, listExpanded]);
+
+    useEffect(() => {
+        void fetchList();
+    }, [fetchList]);
 
     const handleUpdate = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -41,15 +80,21 @@ export default function SearchPage() {
             updateItem(editingItem.id, editingItem);
             toast.success('Ürün güncellendi');
             setEditingItem(null);
+            await fetchList();
         } else {
             toast.error('Güncelleme kaydedilemedi');
         }
     };
 
-    const handleDelete = (id: string) => {
-        if (confirm('Bu ürünü silmek istediğinize emin misiniz?')) {
+    const handleDelete = async (id: string) => {
+        if (!confirm('Bu ürünü silmek istediğinize emin misiniz?')) return;
+        const result = await dbActions.removeItem(id);
+        if (result.success) {
             removeItem(id);
             toast.success('Ürün silindi');
+            await fetchList();
+        } else {
+            toast.error('Silme işlemi başarısız');
         }
     };
 
@@ -66,13 +111,18 @@ export default function SearchPage() {
                 />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {sortedResults.length === 0 ? (
+            <div className="relative grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {listLoading && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-zinc-950/50 text-sm text-zinc-400 min-h-[120px]">
+                        Yükleniyor…
+                    </div>
+                )}
+                {listTotal === 0 && !listLoading ? (
                     <div className="col-span-full text-center py-20 text-zinc-500">
                         Ürün bulunamadı.
                     </div>
                 ) : (
-                    sortedResults.map((item) => (
+                    listItems.map((item) => (
                         <Card
                             key={item.id}
                             className="group relative hover:border-primary/50 transition-colors cursor-pointer overflow-hidden"
@@ -120,6 +170,32 @@ export default function SearchPage() {
                     ))
                 )}
             </div>
+
+            {listTotal > PAGE_SIZE && (
+                <div className="flex justify-center py-2">
+                    {!listExpanded ? (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            className="border-zinc-700 text-zinc-200 hover:bg-zinc-900"
+                            disabled={listLoading}
+                            onClick={() => setListExpanded(true)}
+                        >
+                            Tümünü göster ({listTotal} ürün)
+                        </Button>
+                    ) : (
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            className="text-zinc-400 hover:text-white"
+                            disabled={listLoading}
+                            onClick={() => setListExpanded(false)}
+                        >
+                            İlk {PAGE_SIZE} ürünü göster
+                        </Button>
+                    )}
+                </div>
+            )}
 
             <Dialog open={!!transactionsItem} onOpenChange={(open) => !open && setTransactionsItem(null)}>
                 <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 p-6">

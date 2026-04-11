@@ -13,7 +13,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { bulkAddItems } from '@/lib/actions';
 import { StockItem } from '@/types';
 
-export default function ExcelImportModal() {
+type ExcelImportModalProps = {
+    /** Liste / özet sayaçlarını sunucudan yenilemek için (ör. ürünler sayfası) */
+    onAfterImport?: () => void;
+};
+
+export default function ExcelImportModal({ onAfterImport }: ExcelImportModalProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [previewData, setPreviewData] = useState<any[]>([]);
     const [isDragging, setIsDragging] = useState(false);
@@ -117,6 +122,7 @@ export default function ExcelImportModal() {
         toast.dismiss('upload-progress');
 
         if (successCount > 0) {
+            onAfterImport?.();
             if (failedChunks.length > 0) {
                 toast.warning(`${successCount} ürün yüklendi. Başarısız: ${failedChunks.join(', ')}`);
             } else {

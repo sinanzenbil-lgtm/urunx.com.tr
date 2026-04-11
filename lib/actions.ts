@@ -32,96 +32,229 @@ const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
     stockInterestMonthlyRate: 0,
 };
 
-export async function getItems() {
-    try {
-        const items = await sql`
-            SELECT 
-                id, 
-                barcode, 
-                stock_code as "stockCode", 
-                name, 
-                image, 
-                description, 
-                brand, 
-                vat_rate as "vatRate", 
-                buy_price as "buyPrice", 
-                sell_price as "sellPrice", 
-                quantity, 
-                created_at as "createdAt", 
-                updated_at as "updatedAt",
-                COALESCE(
-                    (SELECT json_agg(json_build_object(
-                        'id', t.id,
-                        'date', t.date,
-                        'type', t.type,
-                        'kind', t.kind,
-                        'quantity', t.quantity,
-                        'channel', t.channel,
-                        'unitPrice', t.unit_price,
-                        'totalPrice', t.total_price,
-                        'customerId', t.customer_id,
-                        'customerName', c.name,
-                        'customerCode', c.customer_code
-                    ) ORDER BY t.date DESC)
-                    FROM transactions t
-                    LEFT JOIN customers c ON c.id = t.customer_id
-                    WHERE t.item_id = i.id),
-                    '[]'
-                ) as transactions
-            FROM items i
-            ORDER BY i.updated_at DESC
-        `;
+export type ItemsListSortKey = 'name' | 'brand' | 'stockCode' | 'quantity' | 'buyPrice' | 'sellPrice';
 
-        // Ensure numeric fields are numbers (sometimes DECIMAL comes as string)
-        type DbItemRow = {
-            id: string;
-            barcode: string | null;
-            stockCode: string | null;
-            name: string;
-            image: string | null;
-            description: string | null;
-            brand: string | null;
-            vatRate: unknown;
-            buyPrice: unknown;
-            sellPrice: unknown;
-            quantity: unknown;
-            createdAt: string;
-            updatedAt: string;
-            transactions: unknown;
-        };
+type DbItemRow = {
+    id: string;
+    barcode: string | null;
+    stockCode: string | null;
+    name: string;
+    image: string | null;
+    description: string | null;
+    brand: string | null;
+    vatRate: unknown;
+    buyPrice: unknown;
+    sellPrice: unknown;
+    quantity: unknown;
+    createdAt: string;
+    updatedAt: string;
+    transactions: unknown;
+};
 
-        const formattedItems = (items as unknown as DbItemRow[]).map((item) => {
-            const txs = Array.isArray(item.transactions) ? (item.transactions as unknown[]) : [];
-            const transactions: Transaction[] = txs.map((t) => {
-                const tx = (t ?? {}) as Record<string, unknown>;
-                const quantity = Number(tx['quantity']) || 0;
-                const unitPriceRaw = tx['unitPrice'];
-                const totalPriceRaw = tx['totalPrice'];
-                return {
-                    ...(tx as unknown as Transaction),
-                    quantity,
-                    unitPrice: unitPriceRaw === undefined || unitPriceRaw === null ? undefined : (Number(unitPriceRaw) || 0),
-                    totalPrice: totalPriceRaw === undefined || totalPriceRaw === null ? undefined : (Number(totalPriceRaw) || 0),
-                };
-            });
-
+function mapDbRowsToStockItems(rows: unknown): StockItem[] {
+    const formattedItems = (rows as unknown as DbItemRow[]).map((item) => {
+        const txs = Array.isArray(item.transactions) ? (item.transactions as unknown[]) : [];
+        const transactions: Transaction[] = txs.map((t) => {
+            const tx = (t ?? {}) as Record<string, unknown>;
+            const quantity = Number(tx['quantity']) || 0;
+            const unitPriceRaw = tx['unitPrice'];
+            const totalPriceRaw = tx['totalPrice'];
             return {
-                ...(item as unknown as StockItem),
-                barcode: item.barcode ?? '',
-                stockCode: item.stockCode ?? '',
-                buyPrice: Number(item.buyPrice) || 0,
-                sellPrice: Number(item.sellPrice) || 0,
-                vatRate: Number(item.vatRate) || 0,
-                quantity: Number(item.quantity) || 0,
-                transactions,
+                ...(tx as unknown as Transaction),
+                quantity,
+                unitPrice: unitPriceRaw === undefined || unitPriceRaw === null ? undefined : (Number(unitPriceRaw) || 0),
+                totalPrice: totalPriceRaw === undefined || totalPriceRaw === null ? undefined : (Number(totalPriceRaw) || 0),
             };
         });
 
-        return formattedItems as unknown as StockItem[];
+        return {
+            ...(item as unknown as StockItem),
+            barcode: item.barcode ?? '',
+            stockCode: item.stockCode ?? '',
+            buyPrice: Number(item.buyPrice) || 0,
+            sellPrice: Number(item.sellPrice) || 0,
+            vatRate: Number(item.vatRate) || 0,
+            quantity: Number(item.quantity) || 0,
+            transactions,
+        };
+    });
+
+    return formattedItems as unknown as StockItem[];
+}
+
+/** items tablosu + işlemler — liste sorgularında ortak SELECT gövdesi */
+const ITEMS_SELECT_FROM = sql`
+    SELECT 
+        i.id, 
+        i.barcode, 
+        i.stock_code as "stockCode", 
+        i.name, 
+        i.image, 
+        i.description, 
+        i.brand, 
+        i.vat_rate as "vatRate", 
+        i.buy_price as "buyPrice", 
+        i.sell_price as "sellPrice", 
+        i.quantity, 
+        i.created_at as "createdAt", 
+        i.updated_at as "updatedAt",
+        COALESCE(
+            (SELECT json_agg(json_build_object(
+                'id', t.id,
+                'date', t.date,
+                'type', t.type,
+                'kind', t.kind,
+                'quantity', t.quantity,
+                'channel', t.channel,
+                'unitPrice', t.unit_price,
+                'totalPrice', t.total_price,
+                'customerId', t.customer_id,
+                'customerName', c.name,
+                'customerCode', c.customer_code
+            ) ORDER BY t.date DESC)
+            FROM transactions t
+            LEFT JOIN customers c ON c.id = t.customer_id
+            WHERE t.item_id = i.id),
+            '[]'
+        ) as transactions
+    FROM items i
+`;
+
+const ITEMS_ORDER_WHITELIST: Record<string, string> = {
+    'name-asc': 'i.name ASC',
+    'name-desc': 'i.name DESC',
+    'brand-asc': 'i.brand ASC NULLS LAST',
+    'brand-desc': 'i.brand DESC NULLS LAST',
+    'stockCode-asc': 'i.stock_code ASC NULLS LAST',
+    'stockCode-desc': 'i.stock_code DESC NULLS LAST',
+    'quantity-asc': 'i.quantity ASC',
+    'quantity-desc': 'i.quantity DESC',
+    'buyPrice-asc': 'i.buy_price ASC',
+    'buyPrice-desc': 'i.buy_price DESC',
+    'sellPrice-asc': 'i.sell_price ASC',
+    'sellPrice-desc': 'i.sell_price DESC',
+};
+
+function itemsListWhereClause(brand: string | undefined, searchRaw: string | undefined) {
+    const q = (searchRaw ?? '').trim();
+    const b = (brand ?? '').trim();
+    if (b && q) {
+        const p = `%${q}%`;
+        return sql`WHERE i.brand = ${b} AND (
+            i.name ILIKE ${p} OR i.barcode ILIKE ${p} OR COALESCE(i.stock_code, '') ILIKE ${p} OR COALESCE(i.brand, '') ILIKE ${p}
+        )`;
+    }
+    if (b) {
+        return sql`WHERE i.brand = ${b}`;
+    }
+    if (q) {
+        const p = `%${q}%`;
+        return sql`WHERE (
+            i.name ILIKE ${p} OR i.barcode ILIKE ${p} OR COALESCE(i.stock_code, '') ILIKE ${p} OR COALESCE(i.brand, '') ILIKE ${p}
+        )`;
+    }
+    return sql``;
+}
+
+export async function getItems() {
+    try {
+        const items = await sql`
+            ${ITEMS_SELECT_FROM}
+            ORDER BY i.updated_at DESC
+        `;
+        return mapDbRowsToStockItems(items);
     } catch (error) {
         console.error('Error fetching items:', error);
-        // DB-only mode expects fresh data from DB; don't silently fall back to empty.
-        // Let the caller decide how to handle (e.g. show "DB connection error").
+        throw error;
+    }
+}
+
+export async function getItemsTotalCount(): Promise<number> {
+    try {
+        const rows = await sql`SELECT COUNT(*)::int AS c FROM items`;
+        const n = (rows as { c: number }[])[0]?.c;
+        return Number(n) || 0;
+    } catch (error) {
+        console.error('Error counting items:', error);
+        throw error;
+    }
+}
+
+export async function getItemBrandAggregates(): Promise<{ brand: string; itemCount: number; totalQty: number }[]> {
+    try {
+        const rows = await sql`
+            SELECT
+                brand,
+                COUNT(*)::int AS "itemCount",
+                COALESCE(SUM(quantity), 0)::int AS "totalQty"
+            FROM items
+            WHERE brand IS NOT NULL AND BTRIM(brand) <> ''
+            GROUP BY brand
+            ORDER BY "totalQty" DESC, brand ASC
+        `;
+        return (rows as { brand: string; itemCount: number; totalQty: number }[]).map((r) => ({
+            brand: r.brand,
+            itemCount: Number(r.itemCount) || 0,
+            totalQty: Number(r.totalQty) || 0,
+        }));
+    } catch (error) {
+        console.error('Error fetching brand aggregates:', error);
+        throw error;
+    }
+}
+
+export async function getItemById(id: string): Promise<StockItem | null> {
+    try {
+        const trimmed = String(id || '').trim();
+        if (!trimmed) return null;
+        const rows = await sql`
+            ${ITEMS_SELECT_FROM}
+            WHERE i.id = ${trimmed}
+            LIMIT 1
+        `;
+        const mapped = mapDbRowsToStockItems(rows);
+        return mapped[0] ?? null;
+    } catch (error) {
+        console.error('Error fetching item:', error);
+        throw error;
+    }
+}
+
+export async function getItemsPaginated(params: {
+    limit: number;
+    offset?: number;
+    search?: string;
+    brand?: string;
+    sortBy: ItemsListSortKey;
+    sortDir: 'asc' | 'desc';
+}): Promise<{ items: StockItem[]; total: number }> {
+    try {
+        const limit = Math.min(Math.max(1, Math.floor(Number(params.limit) || 20)), 100_000);
+        const offset = Math.min(Math.max(0, Math.floor(Number(params.offset) || 0)), 100_000);
+        const brand = (params.brand ?? '').trim() || undefined;
+        const search = (params.search ?? '').trim() || undefined;
+        const sortBy = params.sortBy;
+        const sortDir = params.sortDir === 'desc' ? 'desc' : 'asc';
+        const orderKey = `${sortBy}-${sortDir}`;
+        const orderSql = ITEMS_ORDER_WHITELIST[orderKey] ?? 'i.name ASC';
+        const whereClause = itemsListWhereClause(brand, search);
+
+        const countRows = await sql`
+            SELECT COUNT(*)::int AS c FROM items i ${whereClause}
+        `;
+        const total = Number((countRows as { c: number }[])[0]?.c) || 0;
+
+        const sqlTagged = sql as typeof sql & { unsafe: (fragment: string) => unknown };
+        const items = await sql`
+            ${ITEMS_SELECT_FROM}
+            ${whereClause}
+            ORDER BY ${sqlTagged.unsafe(orderSql)}
+            LIMIT ${limit} OFFSET ${offset}
+        `;
+
+        return { items: mapDbRowsToStockItems(items), total };
+    } catch (error) {
+        console.error('Error fetching items (paginated):', error);
         throw error;
     }
 }
