@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStockStore } from '@/lib/store';
+import * as dbActions from '@/lib/actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -16,22 +17,32 @@ export default function RegisterPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [companyName, setCompanyName] = useState('');
+    const [submitting, setSubmitting] = useState(false);
 
-    const handleRegister = (e: React.FormEvent) => {
+    const handleRegister = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (email && password && companyName) {
-            // Simulate registration and immediate login
-            const newUser = {
-                email,
-                companyName
-            };
+        if (!email || !password || !companyName) {
+            toast.error('Lütfen tüm alanları doldurun');
+            return;
+        }
 
-            login(newUser);
+        setSubmitting(true);
+        try {
+            const result = await dbActions.registerUser({ email, password, companyName });
+            if (!result.success || !result.user) {
+                toast.error(typeof result.error === 'string' ? result.error : 'Kayıt başarısız');
+                return;
+            }
+
+            login(result.user);
             toast.success('Kayıt başarılı! Hoş geldiniz.');
             router.push('/');
-        } else {
-            toast.error('Lütfen tüm alanları doldurun');
+        } catch (error) {
+            console.error(error);
+            toast.error('Kayıt sırasında beklenmeyen bir hata oluştu');
+        } finally {
+            setSubmitting(false);
         }
     };
 
@@ -86,8 +97,8 @@ export default function RegisterPage() {
                                     className="bg-zinc-950 border-zinc-800 focus:border-primary"
                                 />
                             </div>
-                            <Button type="submit" className="w-full bg-primary hover:bg-primary/90 text-white font-bold h-12">
-                                KAYIT OL
+                            <Button type="submit" disabled={submitting} className="w-full bg-primary hover:bg-primary/90 text-white font-bold h-12 disabled:opacity-60">
+                                {submitting ? 'KAYIT OLUŞTURULUYOR...' : 'KAYIT OL'}
                             </Button>
                         </form>
                     </CardContent>

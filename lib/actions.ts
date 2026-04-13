@@ -1,8 +1,23 @@
 'use server';
 
+import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { sql } from './db';
-import { Customer, PaymentMethod, StockItem, Transaction } from '@/types';
+import { CompanySettings, Customer, PaymentMethod, StockItem, Transaction, User } from '@/types';
 import { revalidatePath } from 'next/cache';
+
+const OPENING_BALANCE_DEFAULT_DATE = '2000-01-01T00:00:00.000Z';
+const AUTH_PASSWORD_MIN_LENGTH = 4;
+const AUTH_PASSWORD_KEYLEN = 64;
+const DEFAULT_COMPANY_NAME = 'SPEEDSPOR';
+const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
+    companyName: '',
+    tradeName: '',
+    address: '',
+    phone: '',
+    email: '',
+    logo: '',
+    stockInterestMonthlyRate: 0,
+};
 
 export async function getItems() {
     try {
@@ -107,6 +122,353 @@ async function ensureItemsSchema() {
 async function ensureCustomerPaymentsSchema() {
     // Backward compatible: older DBs might not have direction column.
     await sql`ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'IN';`;
+}
+
+async function ensureCustomersSchema() {
+    await sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance DECIMAL NOT NULL DEFAULT 0;`;
+    await sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '2000-01-01T00:00:00.000Z';`;
+}
+
+async function ensureCompanySettingsSchema() {
+    await sql`
+        CREATE TABLE IF NOT EXISTS company_settings (
+            id TEXT PRIMARY KEY,
+            company_name TEXT NOT NULL DEFAULT '',
+            trade_name TEXT NOT NULL DEFAULT '',
+            address TEXT NOT NULL DEFAULT '',
+            phone TEXT NOT NULL DEFAULT '',
+            email TEXT NOT NULL DEFAULT '',
+            logo TEXT,
+            monthly_interest_rate DECIMAL NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+    `;
+    await sql`ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS monthly_interest_rate DECIMAL NOT NULL DEFAULT 0;`;
+}
+
+async function ensureAuthUsersSchema() {
+    await sql`
+        CREATE TABLE IF NOT EXISTS auth_users (
+            id TEXT PRIMARY KEY,
+            email TEXT NOT NULL,
+            company_name TEXT NOT NULL DEFAULT '',
+            password_hash TEXT NOT NULL,
+            password_salt TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'admin',
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+    `;
+    await sql`ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS company_name TEXT NOT NULL DEFAULT '';`;
+    await sql`ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT '';`;
+    await sql`ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS password_salt TEXT NOT NULL DEFAULT '';`;
+    await sql`ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin';`;
+    await sql`ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;`;
+    await sql`CREATE UNIQUE INDEX IF NOT EXISTS auth_users_email_lower_key ON auth_users (LOWER(email));`;
+}
+
+function normalizeEmail(email: string) {
+    return (email || '').trim().toLocaleLowerCase('tr-TR');
+}
+
+function createPasswordDigest(password: string) {
+    const salt = randomBytes(16).toString('hex');
+    const hash = scryptSync(password, salt, AUTH_PASSWORD_KEYLEN).toString('hex');
+    return { salt, hash };
+}
+
+function verifyPassword(password: string, salt: string, expectedHash: string) {
+    const nextHash = Buffer.from(scryptSync(password, salt, AUTH_PASSWORD_KEYLEN).toString('hex'), 'hex');
+    const savedHash = Buffer.from(expectedHash || '', 'hex');
+    if (nextHash.length !== savedHash.length) return false;
+    return timingSafeEqual(nextHash, savedHash);
+}
+
+type AuthUserRow = {
+    id: string;
+    email: string;
+    companyName: string | null;
+    passwordHash: string;
+    passwordSalt: string;
+    role: string | null;
+    createdAt: string | null;
+    updatedAt: string | null;
+};
+
+async function getAuthUserByEmail(email: string) {
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) return null;
+
+    const rows = await sql`
+        SELECT
+            id,
+            email,
+            company_name as "companyName",
+            password_hash as "passwordHash",
+            password_salt as "passwordSalt",
+            role,
+            created_at as "createdAt",
+            updated_at as "updatedAt"
+        FROM auth_users
+        WHERE LOWER(email) = LOWER(${normalizedEmail})
+        LIMIT 1;
+    `;
+
+    return ((rows as unknown as AuthUserRow[])?.[0] ?? null);
+}
+
+async function getAuthUserCount() {
+    const rows = await sql`SELECT COUNT(*)::int as count FROM auth_users;`;
+    return Number(rows?.[0]?.count) || 0;
+}
+
+async function getDefaultCompanyIdentity() {
+    await ensureCompanySettingsSchema();
+    const rows = await sql`
+        SELECT company_name as "companyName", email
+        FROM company_settings
+        WHERE id = 'default'
+        LIMIT 1;
+    `;
+
+    const row = rows?.[0] as { companyName?: string | null; email?: string | null } | undefined;
+    return {
+        companyName: (row?.companyName || '').trim(),
+        email: normalizeEmail(row?.email || ''),
+    };
+}
+
+async function syncCompanyIdentity(payload: { companyName?: string; email?: string }) {
+    await ensureCompanySettingsSchema();
+    const companyName = (payload.companyName || '').trim();
+    const email = normalizeEmail(payload.email || '');
+
+    if (!companyName && !email) return;
+
+    await sql`
+        INSERT INTO company_settings (id, company_name, email, updated_at)
+        VALUES ('default', ${companyName}, ${email}, ${new Date().toISOString()})
+        ON CONFLICT (id) DO UPDATE SET
+            company_name = CASE
+                WHEN COALESCE(company_settings.company_name, '') = '' AND ${companyName} <> '' THEN EXCLUDED.company_name
+                ELSE company_settings.company_name
+            END,
+            email = CASE
+                WHEN COALESCE(company_settings.email, '') = '' AND ${email} <> '' THEN EXCLUDED.email
+                ELSE company_settings.email
+            END,
+            updated_at = company_settings.updated_at;
+    `;
+}
+
+function toPublicUser(row: Pick<AuthUserRow, 'email' | 'companyName'>, fallbackCompanyName: string): User {
+    return {
+        email: normalizeEmail(row.email),
+        companyName: (fallbackCompanyName || '').trim() || (row.companyName || '').trim() || DEFAULT_COMPANY_NAME,
+    };
+}
+
+export async function authenticateUser(payload: { email: string; password: string }) {
+    try {
+        await ensureAuthUsersSchema();
+
+        const email = normalizeEmail(payload.email);
+        const password = String(payload.password || '');
+
+        if (!email || !password) {
+            return { success: false, error: 'E-posta ve şifre zorunludur.' };
+        }
+
+        let userRow = await getAuthUserByEmail(email);
+
+        if (!userRow) {
+            const userCount = await getAuthUserCount();
+            if (userCount !== 0) {
+                return { success: false, error: 'E-posta veya şifre hatalı.' };
+            }
+
+            const companyIdentity = await getDefaultCompanyIdentity();
+            const companyName = companyIdentity.companyName || DEFAULT_COMPANY_NAME;
+            const passwordDigest = createPasswordDigest(password);
+
+            await sql`
+                INSERT INTO auth_users (id, email, company_name, password_hash, password_salt, role, updated_at)
+                VALUES (${crypto.randomUUID()}, ${email}, ${companyName}, ${passwordDigest.hash}, ${passwordDigest.salt}, 'admin', ${new Date().toISOString()});
+            `;
+            await syncCompanyIdentity({ companyName, email });
+            userRow = await getAuthUserByEmail(email);
+        }
+
+        if (!userRow || !verifyPassword(password, userRow.passwordSalt, userRow.passwordHash)) {
+            return { success: false, error: 'E-posta veya şifre hatalı.' };
+        }
+
+        const companyIdentity = await getDefaultCompanyIdentity();
+        return {
+            success: true,
+            user: toPublicUser(userRow, companyIdentity.companyName || DEFAULT_COMPANY_NAME),
+        };
+    } catch (error) {
+        console.error('Error authenticating user:', error);
+        return { success: false, error: 'Giriş yapılırken bir hata oluştu.' };
+    }
+}
+
+export async function registerUser(payload: { email: string; password: string; companyName?: string }) {
+    try {
+        await ensureAuthUsersSchema();
+
+        const email = normalizeEmail(payload.email);
+        const password = String(payload.password || '');
+        const requestedCompanyName = (payload.companyName || '').trim();
+
+        if (!email || !password || !requestedCompanyName) {
+            return { success: false, error: 'Şirket adı, e-posta ve şifre zorunludur.' };
+        }
+
+        if (password.length < AUTH_PASSWORD_MIN_LENGTH) {
+            return { success: false, error: `Şifre en az ${AUTH_PASSWORD_MIN_LENGTH} karakter olmalı.` };
+        }
+
+        const existingUser = await getAuthUserByEmail(email);
+        if (existingUser) {
+            return { success: false, error: 'Bu e-posta zaten kayıtlı.' };
+        }
+
+        const passwordDigest = createPasswordDigest(password);
+        await sql`
+            INSERT INTO auth_users (id, email, company_name, password_hash, password_salt, role, updated_at)
+            VALUES (${crypto.randomUUID()}, ${email}, ${requestedCompanyName}, ${passwordDigest.hash}, ${passwordDigest.salt}, 'admin', ${new Date().toISOString()});
+        `;
+
+        await syncCompanyIdentity({ companyName: requestedCompanyName, email });
+
+        revalidatePath('/login');
+        revalidatePath('/register');
+
+        return {
+            success: true,
+            user: {
+                email,
+                companyName: requestedCompanyName,
+            } satisfies User,
+        };
+    } catch (error) {
+        console.error('Error registering user:', error);
+        return { success: false, error: 'Kayıt oluşturulurken bir hata oluştu.' };
+    }
+}
+
+export async function updateUserPassword(payload: { email: string; newPassword: string; companyName?: string }) {
+    try {
+        await ensureAuthUsersSchema();
+
+        const email = normalizeEmail(payload.email);
+        const newPassword = String(payload.newPassword || '');
+        const requestedCompanyName = (payload.companyName || '').trim();
+
+        if (!email) {
+            return { success: false, error: 'Kullanıcı e-postası bulunamadı.' };
+        }
+
+        if (newPassword.length < AUTH_PASSWORD_MIN_LENGTH) {
+            return { success: false, error: `Şifre en az ${AUTH_PASSWORD_MIN_LENGTH} karakter olmalı.` };
+        }
+
+        const existingUser = await getAuthUserByEmail(email);
+        const fallbackIdentity = await getDefaultCompanyIdentity();
+        const companyName = requestedCompanyName || existingUser?.companyName || fallbackIdentity.companyName || DEFAULT_COMPANY_NAME;
+        const passwordDigest = createPasswordDigest(newPassword);
+
+        if (existingUser) {
+            await sql`
+                UPDATE auth_users
+                SET
+                    company_name = ${companyName},
+                    password_hash = ${passwordDigest.hash},
+                    password_salt = ${passwordDigest.salt},
+                    updated_at = ${new Date().toISOString()}
+                WHERE id = ${existingUser.id};
+            `;
+        } else {
+            await sql`
+                INSERT INTO auth_users (id, email, company_name, password_hash, password_salt, role, updated_at)
+                VALUES (${crypto.randomUUID()}, ${email}, ${companyName}, ${passwordDigest.hash}, ${passwordDigest.salt}, 'admin', ${new Date().toISOString()});
+            `;
+        }
+
+        await syncCompanyIdentity({ companyName, email });
+        revalidatePath('/ayarlar');
+
+        return {
+            success: true,
+            user: {
+                email,
+                companyName,
+            } satisfies User,
+        };
+    } catch (error) {
+        console.error('Error updating user password:', error);
+        return { success: false, error: 'Şifre güncellenirken bir hata oluştu.' };
+    }
+}
+
+export async function updateUserEmail(payload: { currentEmail: string; newEmail: string; companyName?: string }) {
+    try {
+        await ensureAuthUsersSchema();
+
+        const currentEmail = normalizeEmail(payload.currentEmail);
+        const newEmail = normalizeEmail(payload.newEmail);
+        const companyName = (payload.companyName || '').trim();
+
+        if (!newEmail) {
+            return { success: false, error: 'Geçerli bir e-posta girin.' };
+        }
+
+        if (currentEmail === newEmail) {
+            return {
+                success: true,
+                user: {
+                    email: newEmail,
+                    companyName: companyName || DEFAULT_COMPANY_NAME,
+                } satisfies User,
+            };
+        }
+
+        const duplicateUser = await getAuthUserByEmail(newEmail);
+        if (duplicateUser) {
+            return { success: false, error: 'Bu e-posta başka bir hesapta kullanılıyor.' };
+        }
+
+        const existingUser = await getAuthUserByEmail(currentEmail);
+        const fallbackIdentity = await getDefaultCompanyIdentity();
+        const nextCompanyName = companyName || existingUser?.companyName || fallbackIdentity.companyName || DEFAULT_COMPANY_NAME;
+
+        if (existingUser) {
+            await sql`
+                UPDATE auth_users
+                SET
+                    email = ${newEmail},
+                    company_name = ${nextCompanyName},
+                    updated_at = ${new Date().toISOString()}
+                WHERE id = ${existingUser.id};
+            `;
+        }
+
+        await syncCompanyIdentity({ companyName: nextCompanyName, email: newEmail });
+        revalidatePath('/ayarlar');
+
+        return {
+            success: true,
+            user: {
+                email: newEmail,
+                companyName: nextCompanyName,
+            } satisfies User,
+        };
+    } catch (error) {
+        console.error('Error updating user email:', error);
+        return { success: false, error: 'E-posta güncellenirken bir hata oluştu.' };
+    }
 }
 
 export async function addItem(item: StockItem) {
@@ -328,8 +690,9 @@ export async function removeTransactions(transactionIds: string[]) {
     }
 }
 
-export async function updateCustomer(customerId: string, payload: { customerCode?: string; name?: string }) {
+export async function updateCustomer(customerId: string, payload: { customerCode?: string; name?: string; openingBalance?: number }) {
     try {
+        await ensureCustomersSchema();
         const id = (customerId || '').trim();
         if (!id) return { success: false, error: 'customerId is required' };
 
@@ -338,11 +701,22 @@ export async function updateCustomer(customerId: string, payload: { customerCode
 
         const codeRaw = (payload.customerCode ?? '').trim();
         const code = codeRaw.length > 0 ? codeRaw : null;
+        const openingBalanceInput = payload.openingBalance;
+        const openingBalance = openingBalanceInput === undefined ? null : Number(openingBalanceInput);
+        if (openingBalance !== null && !Number.isFinite(openingBalance)) {
+            return { success: false, error: 'openingBalance must be numeric' };
+        }
+        const shouldResetOpeningBalanceDate = openingBalance !== null;
 
         await sql`
             UPDATE customers
             SET customer_code = ${code},
-                name = ${name}
+                name = ${name},
+                opening_balance = COALESCE(${openingBalance}, opening_balance),
+                opening_balance_date = CASE
+                    WHEN ${shouldResetOpeningBalanceDate} THEN '2000-01-01T00:00:00.000Z'::timestamptz
+                    ELSE opening_balance_date
+                END
             WHERE id = ${id};
         `;
 
@@ -557,6 +931,7 @@ export async function removeCustomerPayments(paymentIds: string[]) {
 
 export async function getCustomers() {
     try {
+        await ensureCustomersSchema();
         await ensureCustomerPaymentsSchema();
         const customers = await sql`
             WITH tx AS (
@@ -596,16 +971,43 @@ export async function getCustomers() {
                 c.customer_code as "customerCode",
                 c.name,
                 c.created_at as "createdAt",
-                COALESCE(t.credit_total, 0) as "creditTotal",
-                COALESCE(t.debt_total, 0) as "debtTotal",
+                COALESCE(c.opening_balance, 0) as "openingBalance",
+                c.opening_balance_date as "openingBalanceDate",
+                (
+                    COALESCE(t.credit_total, 0)
+                    + CASE WHEN COALESCE(c.opening_balance, 0) > 0 THEN COALESCE(c.opening_balance, 0) ELSE 0 END
+                ) as "creditTotal",
+                (
+                    COALESCE(t.debt_total, 0)
+                    + CASE WHEN COALESCE(c.opening_balance, 0) < 0 THEN ABS(COALESCE(c.opening_balance, 0)) ELSE 0 END
+                ) as "debtTotal",
                 COALESCE(m.collection_total, 0) as "collectionTotal",
                 COALESCE(m.payment_total, 0) as "paymentTotal",
-                (COALESCE(t.credit_total, 0) - COALESCE(m.collection_total, 0)) as "creditBalance",
-                (COALESCE(t.debt_total, 0) - COALESCE(m.payment_total, 0)) as "debtBalance"
+                (
+                    COALESCE(t.credit_total, 0)
+                    + CASE WHEN COALESCE(c.opening_balance, 0) > 0 THEN COALESCE(c.opening_balance, 0) ELSE 0 END
+                    - COALESCE(m.collection_total, 0)
+                ) as "creditBalance",
+                (
+                    COALESCE(t.debt_total, 0)
+                    + CASE WHEN COALESCE(c.opening_balance, 0) < 0 THEN ABS(COALESCE(c.opening_balance, 0)) ELSE 0 END
+                    - COALESCE(m.payment_total, 0)
+                ) as "debtBalance"
             FROM customers c
             LEFT JOIN tx t ON t.customer_id = c.id
             LEFT JOIN money m ON m.customer_id = c.id
-            ORDER BY COALESCE(NULLIF(c.customer_code, ''), c.name) ASC;
+            ORDER BY
+                CASE
+                    WHEN NULLIF(c.customer_code, '') IS NULL THEN 2
+                    WHEN c.customer_code ~ '^[0-9]+$' THEN 0
+                    ELSE 1
+                END ASC,
+                CASE
+                    WHEN c.customer_code ~ '^[0-9]+$' THEN c.customer_code::numeric
+                    ELSE NULL
+                END ASC,
+                LOWER(COALESCE(c.customer_code, '')) ASC,
+                LOWER(c.name) ASC;
         `;
 
         const rows = customers as unknown as Array<
@@ -616,6 +1018,8 @@ export async function getCustomers() {
                 paymentTotal: unknown;
                 creditBalance: unknown;
                 debtBalance: unknown;
+                openingBalance: unknown;
+                openingBalanceDate: string | null;
             }
         >;
         return rows.map((c) => ({
@@ -626,6 +1030,8 @@ export async function getCustomers() {
             paymentTotal: Number(c.paymentTotal) || 0,
             creditBalance: Number(c.creditBalance) || 0,
             debtBalance: Number(c.debtBalance) || 0,
+            openingBalance: Number(c.openingBalance) || 0,
+            openingBalanceDate: c.openingBalanceDate || OPENING_BALANCE_DEFAULT_DATE,
         })) as unknown as Customer[];
     } catch (error) {
         console.error('Error fetching customers:', error);
@@ -633,8 +1039,107 @@ export async function getCustomers() {
     }
 }
 
-export async function addCustomer(payload: { customerCode?: string; name: string }) {
+export async function getCustomerById(customerId: string) {
     try {
+        const id = (customerId || '').trim();
+        if (!id) return { success: false, error: 'customerId is required', customer: null as Customer | null };
+        const customers = await getCustomers();
+        const customer = customers.find((c) => c.id === id) || null;
+        if (!customer) return { success: false, error: 'customer not found', customer: null as Customer | null };
+        return { success: true, customer };
+    } catch (error) {
+        console.error('Error fetching customer by id:', error);
+        return { success: false, error, customer: null as Customer | null };
+    }
+}
+
+export async function getCompanySettings() {
+    try {
+        await ensureCompanySettingsSchema();
+        const rows = await sql`
+            SELECT
+                id,
+                company_name as "companyName",
+                trade_name as "tradeName",
+                address,
+                phone,
+                email,
+                logo,
+                monthly_interest_rate as "stockInterestMonthlyRate",
+                updated_at as "updatedAt"
+            FROM company_settings
+            WHERE id = 'default'
+            LIMIT 1;
+        `;
+        if (!rows?.length) {
+            return { success: true, settings: { ...DEFAULT_COMPANY_SETTINGS } };
+        }
+        const row = rows[0] as unknown as {
+            companyName: string | null;
+            tradeName: string | null;
+            address: string | null;
+            phone: string | null;
+            email: string | null;
+            logo: string | null;
+            stockInterestMonthlyRate: unknown;
+            updatedAt: string | null;
+        };
+        const settings: CompanySettings = {
+            companyName: row.companyName || '',
+            tradeName: row.tradeName || '',
+            address: row.address || '',
+            phone: row.phone || '',
+            email: row.email || '',
+            logo: row.logo || '',
+            stockInterestMonthlyRate: Number(row.stockInterestMonthlyRate) || 0,
+            updatedAt: row.updatedAt || undefined,
+        };
+        return { success: true, settings };
+    } catch (error) {
+        console.error('Error fetching company settings:', error);
+        return { success: false, error, settings: { ...DEFAULT_COMPANY_SETTINGS } };
+    }
+}
+
+export async function upsertCompanySettings(payload: CompanySettings) {
+    try {
+        await ensureCompanySettingsSchema();
+        const companyName = (payload.companyName || '').trim();
+        const tradeName = (payload.tradeName || '').trim();
+        const address = (payload.address || '').trim();
+        const phone = (payload.phone || '').trim();
+        const email = (payload.email || '').trim();
+        const logo = (payload.logo || '').trim() || null;
+        const stockInterestMonthlyRate = Number(payload.stockInterestMonthlyRate) || 0;
+
+        await sql`
+            INSERT INTO company_settings (id, company_name, trade_name, address, phone, email, logo, monthly_interest_rate, updated_at)
+            VALUES ('default', ${companyName}, ${tradeName}, ${address}, ${phone}, ${email}, ${logo}, ${stockInterestMonthlyRate}, ${new Date().toISOString()})
+            ON CONFLICT (id) DO UPDATE SET
+                company_name = EXCLUDED.company_name,
+                trade_name = EXCLUDED.trade_name,
+                address = EXCLUDED.address,
+                phone = EXCLUDED.phone,
+                email = EXCLUDED.email,
+                logo = EXCLUDED.logo,
+                monthly_interest_rate = EXCLUDED.monthly_interest_rate,
+                updated_at = EXCLUDED.updated_at;
+        `;
+
+        revalidatePath('/ayarlar');
+        revalidatePath('/cari');
+        revalidatePath('/raporlar');
+        revalidatePath('/raporlar/stok-maliyeti');
+        return { success: true };
+    } catch (error) {
+        console.error('Error updating company settings:', error);
+        return { success: false, error };
+    }
+}
+
+export async function addCustomer(payload: { customerCode?: string; name: string; openingBalance?: number; openingBalanceDate?: string }) {
+    try {
+        await ensureCustomersSchema();
         const name = (payload.name || '').trim();
         if (!name) return { success: false, error: 'Name is required' };
 
@@ -648,10 +1153,19 @@ export async function addCustomer(payload: { customerCode?: string; name: string
             code = String(maxCode + 1);
         }
 
+        const openingBalanceRaw = Number(payload.openingBalance ?? 0);
+        const openingBalance = Number.isFinite(openingBalanceRaw) ? openingBalanceRaw : 0;
+        const openingBalanceDateRaw = (payload.openingBalanceDate || '').trim();
+        const parsedOpeningDate = openingBalanceDateRaw ? new Date(openingBalanceDateRaw) : null;
+        const openingBalanceDate =
+            parsedOpeningDate && !Number.isNaN(parsedOpeningDate.getTime())
+                ? parsedOpeningDate.toISOString()
+                : OPENING_BALANCE_DEFAULT_DATE;
+
         const id = crypto.randomUUID();
         await sql`
-            INSERT INTO customers (id, customer_code, name)
-            VALUES (${id}, ${code}, ${name});
+            INSERT INTO customers (id, customer_code, name, opening_balance, opening_balance_date)
+            VALUES (${id}, ${code}, ${name}, ${openingBalance}, ${openingBalanceDate});
         `;
         revalidatePath('/cari');
         return { success: true, id };
@@ -663,6 +1177,7 @@ export async function addCustomer(payload: { customerCode?: string; name: string
 
 export async function getCustomerMovements(customerId: string) {
     try {
+        await ensureCustomersSchema();
         await ensureCustomerPaymentsSchema();
         const rows = await sql`
             (
@@ -712,6 +1227,31 @@ export async function getCustomerMovements(customerId: string) {
                     NULL::text as "brand"
                 FROM customer_payments p
                 WHERE p.customer_id = ${customerId}
+            )
+            UNION ALL
+            (
+                SELECT
+                    'OPENING' as kind,
+                    ('opening-' || c.id) as id,
+                    COALESCE(c.opening_balance_date, '2000-01-01T00:00:00.000Z'::timestamptz) as date,
+                    'OPENING' as type,
+                    NULL::text as "txKind",
+                    0 as quantity,
+                    NULL::text as channel,
+                    0 as "unitPrice",
+                    ABS(COALESCE(c.opening_balance, 0)) as "totalPrice",
+                    CASE WHEN COALESCE(c.opening_balance, 0) >= 0 THEN 'IN' ELSE 'OUT' END as direction,
+                    'Açılış Bakiyesi' as method,
+                    NULL::text as description,
+                    NULL::text as "itemId",
+                    NULL::text as "itemName",
+                    NULL::text as "barcode",
+                    NULL::text as "stockCode",
+                    NULL::text as "image",
+                    NULL::text as "brand"
+                FROM customers c
+                WHERE c.id = ${customerId}
+                  AND COALESCE(c.opening_balance, 0) <> 0
             )
             ORDER BY date DESC;
         `;

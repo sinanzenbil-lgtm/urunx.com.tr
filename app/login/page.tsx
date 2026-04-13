@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStockStore } from '@/lib/store';
+import * as dbActions from '@/lib/actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -15,41 +16,32 @@ export default function LoginPage() {
     const login = useStockStore((state) => state.login);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [submitting, setSubmitting] = useState(false);
 
-    const handleLogin = (e: React.FormEvent) => {
+    const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (email && password) {
-            // Simulate login - in a real app, verify credentials here
-            // For now, we just create a session with a mock company name if not present in a "database"
-            // Since we are client-side only, we'll assume valid login for any non-empty creds
-            // Ideally, we'd check against registered users, but let's keep it simple for the prototype phase as per instructions.
-            // Wait, the user asked for Register page too. We should probably only allow login if "registered".
-            // But since we use local storage and "mock" auth, let's just allow login for now or check if we want strict simulation.
+        if (!email || !password) {
+            toast.error('Lütfen tüm alanları doldurun');
+            return;
+        }
 
-            // Strict simulation inspired approach:
-            // We can't easily check "all registered users" unless we store them in a separate localStorage key.
-            // For this specific request "member system will be added", let's assume we just log them in 
-            // and maybe set a default company name if they didn't come from register (or force them to register first?).
-            // Let's implement a simple "mock login" that sets the user.
+        setSubmitting(true);
+        try {
+            const result = await dbActions.authenticateUser({ email, password });
+            if (!result.success || !result.user) {
+                toast.error(typeof result.error === 'string' ? result.error : 'Giriş başarısız');
+                return;
+            }
 
-            // To make it feel real, let's auto-generate a company name based on email if not provided (or assume they are logging in).
-            // Actually, the prompt says "login with mail, password".
-
-            const simulatedUser = {
-                email,
-                companyName: 'SPEEDSPOR'
-            };
-
-            // CHECK: Does the user expect persistent strict auth? 
-            // "onlinea taşınacak... üye olunacak... şirket bilgileri eklenecek" 
-            // Since I haven't implemented a "Users" array in store, I will just log them in successfully.
-
-            login(simulatedUser);
+            login(result.user);
             toast.success('Giriş başarılı');
             router.push('/');
-        } else {
-            toast.error('Lütfen tüm alanları doldurun');
+        } catch (error) {
+            console.error(error);
+            toast.error('Giriş sırasında beklenmeyen bir hata oluştu');
+        } finally {
+            setSubmitting(false);
         }
     };
 
@@ -91,8 +83,8 @@ export default function LoginPage() {
                                     className="bg-zinc-950 border-zinc-800 focus:border-primary"
                                 />
                             </div>
-                            <Button type="submit" className="w-full bg-primary hover:bg-primary/90 text-white font-bold h-12">
-                                GİRİŞ YAP
+                            <Button type="submit" disabled={submitting} className="w-full bg-primary hover:bg-primary/90 text-white font-bold h-12 disabled:opacity-60">
+                                {submitting ? 'GİRİŞ YAPILIYOR...' : 'GİRİŞ YAP'}
                             </Button>
                         </form>
                     </CardContent>

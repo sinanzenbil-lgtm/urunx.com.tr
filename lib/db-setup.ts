@@ -82,6 +82,42 @@ export async function setupDatabase() {
           FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL;
         EXCEPTION WHEN duplicate_object THEN NULL; END $$;`;
 
+        // Company settings table (logo / unvan / iletişim)
+        await sql`
+      CREATE TABLE IF NOT EXISTS company_settings (
+        id TEXT PRIMARY KEY,
+        company_name TEXT NOT NULL DEFAULT '',
+        trade_name TEXT NOT NULL DEFAULT '',
+        address TEXT NOT NULL DEFAULT '',
+        phone TEXT NOT NULL DEFAULT '',
+        email TEXT NOT NULL DEFAULT '',
+        logo TEXT,
+        monthly_interest_rate DECIMAL NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+        await sql`ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS monthly_interest_rate DECIMAL NOT NULL DEFAULT 0;`;
+
+        // Auth users table
+        await sql`
+      CREATE TABLE IF NOT EXISTS auth_users (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        company_name TEXT NOT NULL DEFAULT '',
+        password_hash TEXT NOT NULL,
+        password_salt TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'admin',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `;
+        await sql`ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS company_name TEXT NOT NULL DEFAULT '';`;
+        await sql`ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS password_hash TEXT NOT NULL DEFAULT '';`;
+        await sql`ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS password_salt TEXT NOT NULL DEFAULT '';`;
+        await sql`ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin';`;
+        await sql`ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;`;
+        await sql`CREATE UNIQUE INDEX IF NOT EXISTS auth_users_email_lower_key ON auth_users (LOWER(email));`;
+
         console.log('Database tables created successfully');
         return { success: true };
     } catch (error) {
