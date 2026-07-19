@@ -5,8 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Search, ArrowDownCircle, ArrowUpCircle, Trash2, Package, Pencil, Loader2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { Search, ArrowDownCircle, ArrowUpCircle, Trash2, Package, Pencil, Loader2, X } from 'lucide-react';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import * as dbActions from '@/lib/actions';
 import { cn } from '@/lib/utils';
 import { Customer, StockItem, Transaction } from '@/types';
@@ -28,11 +29,21 @@ const PAGE_SIZE = 50;
 const currency = (value: number) =>
     new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(value) || 0);
 
-export default function MovementsPage() {
+function MovementsPageInner() {
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    // Urun listesindeki "Urun Hareketleri" diyalogundan gelinen parametreler:
+    // ?item=<urunId> -> yalnizca o urunun hareketleri, ?highlight=<hareketId> -> o kayda kaydir/vurgula
+    const itemParam = searchParams.get('item') || '';
+    const highlightParam = searchParams.get('highlight') || '';
+
     const [rows, setRows] = useState<FlatTransaction[]>([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
+
+    const [flashId, setFlashId] = useState<string | null>(null);
+    const processedHighlightRef = useRef<string | null>(null);
 
     const [searchQuery, setSearchQuery] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -86,21 +97,27 @@ export default function MovementsPage() {
         return () => clearTimeout(id);
     }, [searchQuery]);
 
+    // Tek bir ürüne filtreliyken (ürün hareketleri diyalogundan gelince) hedef hareketin
+    // yüklü olması için tek seferde daha çok kayıt çekeriz; bir ürünün hareket sayısı
+    // neredeyse her zaman bunun altındadır.
+    const pageSize = itemParam ? 500 : PAGE_SIZE;
+
     const buildParams = useCallback(
         (offset: number) => {
             // Yerel gün sınırlarını ISO'ya çevirip sunucuya gönderiyoruz.
             const startIso = dateRange.start ? new Date(`${dateRange.start}T00:00:00`).toISOString() : undefined;
             const endIso = dateRange.end ? new Date(`${dateRange.end}T23:59:59.999`).toISOString() : undefined;
             return {
-                limit: PAGE_SIZE,
+                limit: pageSize,
                 offset,
                 search: debouncedSearch || undefined,
                 type: typeFilter,
+                itemId: itemParam || undefined,
                 startDate: startIso,
                 endDate: endIso,
             };
         },
-        [dateRange.start, dateRange.end, debouncedSearch, typeFilter]
+        [dateRange.start, dateRange.end, debouncedSearch, typeFilter, itemParam, pageSize]
     );
 
     // İlk sayfa: mount + filtre değişimlerinde son 50 hareketi (filtreliyse eşleşen ilk 50'yi) çek.
@@ -143,7 +160,7 @@ export default function MovementsPage() {
         }
     }, [buildParams]);
 
-    const loadMore = async () => {
+    const loadMore = useCallback(async () => {
         if (loadingMore || rows.length >= total) return;
         setLoadingMore(true);
         try {
@@ -161,12 +178,52 @@ export default function MovementsPage() {
         } finally {
             setLoadingMore(false);
         }
-    };
+    }, [buildParams, loadingMore, rows.length, total]);
 
     // Seçimi yüklü satırlarla tutarlı tut
     useEffect(() => {
         setSelectedIds((prev) => prev.filter((id) => rows.some((t) => t.id === id)));
     }, [rows]);
+
+    // Ürün hareketleri diyalogundan gelen ?highlight kaydına kaydır ve kısa süre vurgula.
+    // Yeni bir highlight geldiğinde (parametre değişince) yeniden işlenebilsin diye ref sıfırlanır.
+    useEffect(() => {
+        processedHighlightRef.current = null;
+        setFlashId(null);
+    }, [highlightParam]);
+
+    useEffect(() => {
+        if (!highlightParam || loading) return;
+        if (processedHighlightRef.current === highlightParam) return;
+
+        const exists = rows.some((r) => r.id === highlightParam);
+        if (exists) {
+            processedHighlightRef.current = highlightParam;
+            if (typeof document !== 'undefined') {
+                const el = document.getElementById(`tx-${highlightParam}`);
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            setFlashId(highlightParam);
+            return;
+        }
+
+        // Henüz yüklenmediyse ve bu ürüne filtreliyse devamını otomatik yükle (nadir: >500 hareket)
+        if (itemParam && !loadingMore && rows.length < total) {
+            void loadMore();
+        }
+    }, [highlightParam, rows, loading, loadingMore, total, itemParam, loadMore]);
+
+    // Vurgu (flash) belli bir süre sonra kendiliğinden sönsün. Yalnızca flashId'ye bağlı;
+    // böylece satırlar arada değişse bile zamanlayıcı erken iptal olmaz.
+    useEffect(() => {
+        if (!flashId) return;
+        const timer = setTimeout(() => setFlashId(null), 2600);
+        return () => clearTimeout(timer);
+    }, [flashId]);
+
+    const clearItemFilter = () => {
+        router.replace('/hareketler');
+    };
 
     const toggleSelectAll = () => {
         if (rows.length > 0 && selectedIds.length === rows.length) {
@@ -310,10 +367,27 @@ export default function MovementsPage() {
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight">Ürün Hareketleri</h1>
-                        <p className="text-zinc-500">
-                            Tüm stok giriş ve çıkış geçmişi ({total})
-                            {total > 0 && rows.length < total ? ` — ${rows.length} tanesi gösteriliyor` : ''}
-                        </p>
+                        {itemParam ? (
+                            <div className="flex flex-wrap items-center gap-2 mt-1">
+                                <span className="text-zinc-500">
+                                    {(rows[0]?.productName || 'Seçili ürün')} hareketleri ({total})
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={clearItemFilter}
+                                    className="inline-flex items-center gap-1 rounded-full bg-primary/10 border border-primary/30 px-2 py-0.5 text-xs text-primary hover:bg-primary/20 transition-colors"
+                                    title="Ürün filtresini kaldır, tüm hareketleri göster"
+                                >
+                                    <X className="w-3 h-3" />
+                                    Filtreyi kaldır
+                                </button>
+                            </div>
+                        ) : (
+                            <p className="text-zinc-500">
+                                Tüm stok giriş ve çıkış geçmişi ({total})
+                                {total > 0 && rows.length < total ? ` — ${rows.length} tanesi gösteriliyor` : ''}
+                            </p>
+                        )}
                     </div>
                     {selectedIds.length > 0 && (
                         <Button
@@ -414,10 +488,12 @@ export default function MovementsPage() {
                                     rows.map((t) => (
                                         <tr
                                             key={t.id}
+                                            id={`tx-${t.id}`}
                                             onClick={() => openItemTransactions(t.itemId)}
                                             className={cn(
                                                 'hover:bg-zinc-900/50 transition-colors group cursor-pointer',
-                                                selectedIds.includes(t.id) && 'bg-primary/5'
+                                                selectedIds.includes(t.id) && 'bg-primary/5',
+                                                flashId === t.id && 'bg-sky-500/15 ring-2 ring-inset ring-sky-500'
                                             )}
                                         >
                                             <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
@@ -734,5 +810,21 @@ export default function MovementsPage() {
                 </DialogContent>
             </Dialog>
         </div>
+    );
+}
+
+export default function MovementsPage() {
+    // useSearchParams bir Suspense sınırı gerektirir; ilk render için basit bir iskelet gösterilir.
+    return (
+        <Suspense
+            fallback={
+                <div className="flex items-center justify-center gap-2 py-20 text-zinc-500">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Hareketler yükleniyor...
+                </div>
+            }
+        >
+            <MovementsPageInner />
+        </Suspense>
     );
 }

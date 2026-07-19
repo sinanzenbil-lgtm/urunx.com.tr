@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { StockItem } from '@/types';
-import { Package, Search, Edit, X, PlusCircle, MinusCircle, Trash2, Download, ArrowUp, ArrowDown, Copy, Files } from 'lucide-react';
+import { Package, Search, Edit, X, PlusCircle, MinusCircle, Trash2, Download, ArrowUp, ArrowDown, Copy, Files, ChevronRight } from 'lucide-react';
 import * as dbActions from '@/lib/actions';
 import { cn } from '@/lib/utils';
 import * as XLSX from 'xlsx';
@@ -835,7 +835,17 @@ export default function ProductsPage() {
                                         .slice()
                                         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                                         .map((t) => (
-                                            <div key={t.id} className="flex items-center justify-between border-b border-white/5 pb-2 last:border-0">
+                                            <button
+                                                key={t.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    const targetItemId = transactionsItem.id;
+                                                    setTransactionsItem(null);
+                                                    router.push(`/hareketler?item=${encodeURIComponent(targetItemId)}&highlight=${encodeURIComponent(t.id)}`);
+                                                }}
+                                                title="Bu hareketin kaydına git"
+                                                className="w-full flex items-center justify-between gap-3 border-b border-white/5 pb-2 last:border-0 text-left rounded-lg px-2 -mx-2 py-1.5 hover:bg-white/5 transition-colors cursor-pointer group"
+                                            >
                                                 <div>
                                                     <p className="text-sm font-medium text-white">
                                                         {t.type === 'IN' ? 'Giriş' : 'Çıkış'} • {t.quantity} adet
@@ -845,13 +855,16 @@ export default function ProductsPage() {
                                                         <p className="text-xs text-zinc-500">{t.channel}</p>
                                                     )}
                                                 </div>
-                                                <span className={cn(
-                                                    "text-xs font-bold px-2 py-1 rounded-full",
-                                                    t.type === 'IN' ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"
-                                                )}>
-                                                    {t.type === 'IN' ? '+' : '-'}{t.quantity}
-                                                </span>
-                                            </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className={cn(
+                                                        "text-xs font-bold px-2 py-1 rounded-full",
+                                                        t.type === 'IN' ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"
+                                                    )}>
+                                                        {t.type === 'IN' ? '+' : '-'}{t.quantity}
+                                                    </span>
+                                                    <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-300 transition-colors" />
+                                                </div>
+                                            </button>
                                         ))
                                 )}
                             </div>

@@ -256,6 +256,7 @@ export async function getTransactionsPaginated(params: {
     offset?: number;
     search?: string;
     type?: 'ALL' | 'IN' | 'OUT';
+    itemId?: string; // yalnizca bu urunun hareketleri
     startDate?: string; // ISO
     endDate?: string; // ISO
 }): Promise<{ rows: MovementRow[]; total: number }> {
@@ -265,6 +266,7 @@ export async function getTransactionsPaginated(params: {
         const limit = Math.min(Math.max(1, Math.floor(Number(params.limit) || 50)), 1000);
         const offset = Math.min(Math.max(0, Math.floor(Number(params.offset) || 0)), 1_000_000);
         const typeParam = params.type === 'IN' || params.type === 'OUT' ? params.type : 'ALL';
+        const itemId = (params.itemId ?? '').trim();
         const startIso = (params.startDate ?? '').trim() || null;
         const endIso = (params.endDate ?? '').trim() || null;
         const q = (params.search ?? '').trim();
@@ -276,6 +278,7 @@ export async function getTransactionsPaginated(params: {
             JOIN items i ON i.id = t.item_id
             LEFT JOIN customers c ON c.id = t.customer_id
             WHERE (${typeParam} = 'ALL' OR t.type = ${typeParam})
+              AND (${itemId} = '' OR t.item_id = ${itemId})
               AND (${startIso}::timestamptz IS NULL OR t.date >= ${startIso}::timestamptz)
               AND (${endIso}::timestamptz IS NULL OR t.date <= ${endIso}::timestamptz)
               AND (${q} = '' OR (
@@ -310,6 +313,7 @@ export async function getTransactionsPaginated(params: {
             JOIN items i ON i.id = t.item_id
             LEFT JOIN customers c ON c.id = t.customer_id
             WHERE (${typeParam} = 'ALL' OR t.type = ${typeParam})
+              AND (${itemId} = '' OR t.item_id = ${itemId})
               AND (${startIso}::timestamptz IS NULL OR t.date >= ${startIso}::timestamptz)
               AND (${endIso}::timestamptz IS NULL OR t.date <= ${endIso}::timestamptz)
               AND (${q} = '' OR (
