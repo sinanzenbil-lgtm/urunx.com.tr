@@ -332,6 +332,46 @@ export async function getTransactionsPaginated(params: {
     }
 }
 
+/** Tek bir hareketi ürün + cari bilgisiyle getirir (hareket detay sayfası için). */
+export async function getTransactionById(id: string): Promise<MovementRow | null> {
+    try {
+        const trimmed = String(id || '').trim();
+        if (!trimmed) return null;
+        await ensureTransactionIndexes().catch(() => {});
+        const rows = await sql`
+            SELECT
+                t.id,
+                t.date,
+                t.type,
+                t.kind,
+                t.quantity,
+                t.channel,
+                t.unit_price AS "unitPrice",
+                t.total_price AS "totalPrice",
+                t.customer_id AS "customerId",
+                c.name AS "customerName",
+                c.customer_code AS "customerCode",
+                i.id AS "itemId",
+                i.name AS "productName",
+                i.barcode,
+                i.image,
+                i.brand,
+                i.sell_price AS "itemSellPrice",
+                i.created_at AS "itemCreatedAt"
+            FROM transactions t
+            JOIN items i ON i.id = t.item_id
+            LEFT JOIN customers c ON c.id = t.customer_id
+            WHERE t.id = ${trimmed}
+            LIMIT 1
+        `;
+        const mapped = mapMovementRows(rows);
+        return mapped[0] ?? null;
+    } catch (error) {
+        console.error('Error fetching transaction by id:', error);
+        throw error;
+    }
+}
+
 export async function getItemsTotalCount(): Promise<number> {
     try {
         const rows = await sql`SELECT COUNT(*)::int AS c FROM items`;

@@ -839,11 +839,10 @@ export default function ProductsPage() {
                                                 key={t.id}
                                                 type="button"
                                                 onClick={() => {
-                                                    const targetItemId = transactionsItem.id;
                                                     setTransactionsItem(null);
-                                                    router.push(`/hareketler?item=${encodeURIComponent(targetItemId)}&highlight=${encodeURIComponent(t.id)}`);
+                                                    router.push(`/hareketler/${encodeURIComponent(t.id)}`);
                                                 }}
-                                                title="Bu hareketin kaydına git"
+                                                title="Bu hareketin detayına git"
                                                 className="w-full flex items-center justify-between gap-3 border-b border-white/5 pb-2 last:border-0 text-left rounded-lg px-2 -mx-2 py-1.5 hover:bg-white/5 transition-colors cursor-pointer group"
                                             >
                                                 <div>
