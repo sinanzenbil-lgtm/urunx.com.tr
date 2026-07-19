@@ -1,13 +1,12 @@
 'use client';
 
-import { useStockStore } from '@/lib/store';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Search, ArrowDownCircle, ArrowUpCircle, Trash2, Package, Pencil } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Search, ArrowDownCircle, ArrowUpCircle, Trash2, Package, Pencil, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
 import * as dbActions from '@/lib/actions';
 import { cn } from '@/lib/utils';
 import { Customer, StockItem, Transaction } from '@/types';
@@ -22,21 +21,24 @@ type FlatTransaction = Transaction & {
     itemCreatedAt: string;
 };
 
+// Sayfa başına yüklenecek hareket sayısı. İlk açılışta "son 50 hareket" hemen gelir,
+// devamı "Daha fazla göster" ile sunucudan sayfalı çekilir.
+const PAGE_SIZE = 50;
+
 const currency = (value: number) =>
     new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(value) || 0);
 
 export default function MovementsPage() {
-    const items = useStockStore((state) => state.items);
-    const removeStoreTransactions = useStockStore((state) => state.removeTransactions);
-    const setItems = useStockStore((state) => state.setItems);
-
-    const yearStart = `${new Date().getFullYear()}-01-01`;
-    const today = new Date().toISOString().split('T')[0];
+    const [rows, setRows] = useState<FlatTransaction[]>([]);
+    const [total, setTotal] = useState(0);
+    const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
 
     const [searchQuery, setSearchQuery] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-    const [dateRange, setDateRange] = useState({ start: yearStart, end: today });
+    const [dateRange, setDateRange] = useState({ start: '', end: '' });
     const [typeFilter, setTypeFilter] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
     const [deleteOneId, setDeleteOneId] = useState<string | null>(null);
 
@@ -49,6 +51,10 @@ export default function MovementsPage() {
     const [editCustomerId, setEditCustomerId] = useState<string>('');
     const [savingEdit, setSavingEdit] = useState(false);
     const [customers, setCustomers] = useState<Customer[]>([]);
+
+    const [transactionsItem, setTransactionsItem] = useState<StockItem | null>(null);
+    const [itemDialogOpen, setItemDialogOpen] = useState(false);
+    const [loadingItem, setLoadingItem] = useState(false);
 
     const toLocalInput = (iso: string) => {
         const d = new Date(iso);
@@ -74,85 +80,140 @@ export default function MovementsPage() {
         return t.type === 'IN' && (t.kind === 'NORMAL' || !t.kind) && (t.channel || '') === 'Pazaryeri' && !t.customerId && nearCreation;
     };
 
-    // Flatten all transactions from all items
-    const allTransactions = useMemo<FlatTransaction[]>(
-        () =>
-            items
-                .flatMap((item) =>
-                    item.transactions.map((t) => ({
-                        ...t,
-                        productName: item.name,
-                        barcode: item.barcode,
-                        image: item.image,
-                        brand: item.brand,
-                        itemId: item.id,
-                        itemSellPrice: Number(item.sellPrice) || 0,
-                        itemCreatedAt: item.createdAt,
-                    }))
-                )
-                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
-        [items]
+    // Arama girişini biraz geciktir (her tuşta sunucuya gitmemek için)
+    useEffect(() => {
+        const id = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+        return () => clearTimeout(id);
+    }, [searchQuery]);
+
+    const buildParams = useCallback(
+        (offset: number) => {
+            // Yerel gün sınırlarını ISO'ya çevirip sunucuya gönderiyoruz.
+            const startIso = dateRange.start ? new Date(`${dateRange.start}T00:00:00`).toISOString() : undefined;
+            const endIso = dateRange.end ? new Date(`${dateRange.end}T23:59:59.999`).toISOString() : undefined;
+            return {
+                limit: PAGE_SIZE,
+                offset,
+                search: debouncedSearch || undefined,
+                type: typeFilter,
+                startDate: startIso,
+                endDate: endIso,
+            };
+        },
+        [dateRange.start, dateRange.end, debouncedSearch, typeFilter]
     );
 
-    const [transactionsItem, setTransactionsItem] = useState<StockItem | null>(null);
-
-    const filteredTransactions = useMemo(() => allTransactions.filter(t => {
-        const matchesSearch =
-            t.productName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            t.barcode.includes(searchQuery) ||
-            t.brand?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            t.channel?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            (t.customerName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-            (t.customerCode || '').toLowerCase().includes(searchQuery.toLowerCase());
-
-        const matchesType = typeFilter === 'ALL' ? true : t.type === typeFilter;
-
-        const start = new Date(dateRange.start);
-        start.setHours(0, 0, 0, 0);
-        const end = new Date(dateRange.end);
-        end.setHours(23, 59, 59, 999);
-        const tDate = new Date(t.date);
-        const matchesDate = tDate >= start && tDate <= end;
-
-        return matchesSearch && matchesType && matchesDate;
-    }), [allTransactions, dateRange.end, dateRange.start, searchQuery, typeFilter]);
-
+    // İlk sayfa: mount + filtre değişimlerinde son 50 hareketi (filtreliyse eşleşen ilk 50'yi) çek.
     useEffect(() => {
-        // Keep selection consistent with filters
-        setSelectedIds((prev) => prev.filter((id) => filteredTransactions.some((t) => t.id === id)));
-    }, [filteredTransactions]);
+        let cancelled = false;
+        setLoading(true);
+        (async () => {
+            try {
+                const res = await dbActions.getTransactionsPaginated(buildParams(0));
+                if (cancelled) return;
+                setRows((res.rows as unknown as FlatTransaction[]) ?? []);
+                setTotal(res.total ?? 0);
+            } catch (e) {
+                if (cancelled) return;
+                console.error(e);
+                setRows([]);
+                setTotal(0);
+                toast.error('Hareketler yüklenemedi. Lütfen tekrar deneyin.');
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [buildParams]);
+
+    // Mutasyon (düzenleme/silme) sonrası mevcut filtreyle ilk sayfayı yeniden yükle.
+    const refetch = useCallback(async () => {
+        setLoading(true);
+        try {
+            const res = await dbActions.getTransactionsPaginated(buildParams(0));
+            setRows((res.rows as unknown as FlatTransaction[]) ?? []);
+            setTotal(res.total ?? 0);
+        } catch (e) {
+            console.error(e);
+            toast.error('Liste yenilenemedi.');
+        } finally {
+            setLoading(false);
+        }
+    }, [buildParams]);
+
+    const loadMore = async () => {
+        if (loadingMore || rows.length >= total) return;
+        setLoadingMore(true);
+        try {
+            const res = await dbActions.getTransactionsPaginated(buildParams(rows.length));
+            const more = (res.rows as unknown as FlatTransaction[]) ?? [];
+            setRows((prev) => {
+                // Aynı kaydın iki kez eklenmesini önle (arada değişim olursa)
+                const seen = new Set(prev.map((r) => r.id));
+                return [...prev, ...more.filter((r) => !seen.has(r.id))];
+            });
+            setTotal(res.total ?? 0);
+        } catch (e) {
+            console.error(e);
+            toast.error('Daha fazla hareket yüklenemedi.');
+        } finally {
+            setLoadingMore(false);
+        }
+    };
+
+    // Seçimi yüklü satırlarla tutarlı tut
+    useEffect(() => {
+        setSelectedIds((prev) => prev.filter((id) => rows.some((t) => t.id === id)));
+    }, [rows]);
 
     const toggleSelectAll = () => {
-        if (selectedIds.length === filteredTransactions.length) {
+        if (rows.length > 0 && selectedIds.length === rows.length) {
             setSelectedIds([]);
         } else {
-            setSelectedIds(filteredTransactions.map(t => t.id));
+            setSelectedIds(rows.map((t) => t.id));
         }
     };
 
     const toggleSelect = (id: string) => {
-        setSelectedIds(prev =>
-            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-        );
+        setSelectedIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
     };
 
     const handleBulkDelete = async () => {
         if (selectedIds.length === 0) return;
+        const ids = selectedIds;
 
-        toast.promise(dbActions.removeTransactions(selectedIds), {
+        toast.promise(dbActions.removeTransactions(ids), {
             loading: 'İşlemler siliniyor ve stoklar güncelleniyor...',
             success: (data) => {
                 const res = data as Awaited<ReturnType<typeof dbActions.removeTransactions>>;
                 if (res.success) {
-                    removeStoreTransactions(selectedIds);
                     setSelectedIds([]);
                     setIsDeleteOpen(false);
+                    void refetch();
                     return 'İşlemler silindi ve stoklar eski haline getirildi.';
                 }
                 throw new Error('Silme başarısız');
             },
-            error: 'Bir hata oluştu.'
+            error: 'Bir hata oluştu.',
         });
+    };
+
+    const openItemTransactions = async (itemId: string) => {
+        setItemDialogOpen(true);
+        setLoadingItem(true);
+        setTransactionsItem(null);
+        try {
+            const item = await dbActions.getItemById(itemId);
+            setTransactionsItem(item);
+            if (!item) toast.error('Ürün bulunamadı.');
+        } catch (e) {
+            console.error(e);
+            toast.error('Ürün hareketleri yüklenemedi.');
+        } finally {
+            setLoadingItem(false);
+        }
     };
 
     const openEdit = async (t: FlatTransaction) => {
@@ -209,8 +270,7 @@ export default function MovementsPage() {
             });
             if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
 
-            const nextItems = await dbActions.getItems();
-            setItems(nextItems || []);
+            await refetch();
 
             toast.success('Hareket güncellendi', { id: toastId });
             setEditOpen(false);
@@ -232,15 +292,17 @@ export default function MovementsPage() {
             success: (data) => {
                 const res = data as Awaited<ReturnType<typeof dbActions.removeTransactions>>;
                 if (res.success) {
-                    removeStoreTransactions([id]);
                     setSelectedIds((prev) => prev.filter((x) => x !== id));
+                    void refetch();
                     return 'Hareket silindi.';
                 }
                 throw new Error('Silme başarısız');
             },
-            error: 'Bir hata oluştu.'
+            error: 'Bir hata oluştu.',
         });
     };
+
+    const hasMore = rows.length < total;
 
     return (
         <div className="space-y-6 animate-enter">
@@ -248,7 +310,10 @@ export default function MovementsPage() {
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight">Ürün Hareketleri</h1>
-                        <p className="text-zinc-500">Tüm stok giriş ve çıkış geçmişi ({allTransactions.length})</p>
+                        <p className="text-zinc-500">
+                            Tüm stok giriş ve çıkış geçmişi ({total})
+                            {total > 0 && rows.length < total ? ` — ${rows.length} tanesi gösteriliyor` : ''}
+                        </p>
                     </div>
                     {selectedIds.length > 0 && (
                         <Button
@@ -265,7 +330,7 @@ export default function MovementsPage() {
                     <div className="relative w-full">
                         <Search className="absolute left-3 top-3 w-5 h-5 text-zinc-500" />
                         <Input
-                            placeholder="Ürün adı, barkod, marka veya kanal ara..."
+                            placeholder="Ürün adı, barkod, marka, kanal veya cari ara..."
                             className="pl-10 h-12 text-lg bg-zinc-900/50 border-zinc-800 focus:border-primary/50"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
@@ -310,7 +375,7 @@ export default function MovementsPage() {
                                     <th className="px-4 py-4 w-10">
                                         <input
                                             type="checkbox"
-                                            checked={selectedIds.length > 0 && selectedIds.length === filteredTransactions.length}
+                                            checked={rows.length > 0 && selectedIds.length === rows.length}
                                             onChange={toggleSelectAll}
                                             className="w-4 h-4 accent-primary rounded"
                                         />
@@ -328,23 +393,31 @@ export default function MovementsPage() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-zinc-800">
-                                {filteredTransactions.length === 0 ? (
+                                {loading ? (
                                     <tr>
                                         <td colSpan={11} className="px-6 py-12 text-center text-zinc-500">
-                                            {allTransactions.length === 0 ? "Henüz işlem kaydı yok." : "Aranan kriterlere uygun kayıt bulunamadı."}
+                                            <div className="flex items-center justify-center gap-2">
+                                                <Loader2 className="w-5 h-5 animate-spin" />
+                                                Hareketler yükleniyor...
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ) : rows.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={11} className="px-6 py-12 text-center text-zinc-500">
+                                            {total === 0 && !debouncedSearch && !dateRange.start && !dateRange.end && typeFilter === 'ALL'
+                                                ? 'Henüz işlem kaydı yok.'
+                                                : 'Aranan kriterlere uygun kayıt bulunamadı.'}
                                         </td>
                                     </tr>
                                 ) : (
-                                    filteredTransactions.map((t) => (
+                                    rows.map((t) => (
                                         <tr
                                             key={t.id}
-                                            onClick={() => {
-                                                const item = items.find(i => i.id === t.itemId);
-                                                if (item) setTransactionsItem(item);
-                                            }}
+                                            onClick={() => openItemTransactions(t.itemId)}
                                             className={cn(
-                                                "hover:bg-zinc-900/50 transition-colors group cursor-pointer",
-                                                selectedIds.includes(t.id) && "bg-primary/5"
+                                                'hover:bg-zinc-900/50 transition-colors group cursor-pointer',
+                                                selectedIds.includes(t.id) && 'bg-primary/5'
                                             )}
                                         >
                                             <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
@@ -459,54 +532,74 @@ export default function MovementsPage() {
                             </tbody>
                         </table>
                     </div>
+                    {hasMore && !loading && (
+                        <div className="flex items-center justify-center border-t border-zinc-800 p-4">
+                            <Button
+                                variant="outline"
+                                className="border-zinc-700 gap-2"
+                                onClick={loadMore}
+                                disabled={loadingMore}
+                            >
+                                {loadingMore ? (
+                                    <>
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        Yükleniyor...
+                                    </>
+                                ) : (
+                                    `Daha fazla göster (${total - rows.length} kayıt daha)`
+                                )}
+                            </Button>
+                        </div>
+                    )}
                 </CardContent>
             </Card>
 
-            <Dialog open={!!transactionsItem} onOpenChange={(open) => !open && setTransactionsItem(null)}>
+            <Dialog open={itemDialogOpen} onOpenChange={(open) => { setItemDialogOpen(open); if (!open) setTransactionsItem(null); }}>
                 <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 p-6">
-                    {transactionsItem && (
-                        <>
-                            <DialogHeader>
-                                <DialogTitle>Stok Hareketleri</DialogTitle>
-                                <DialogDescription>
-                                    {transactionsItem.name} için son hareketler
-                                </DialogDescription>
-                            </DialogHeader>
-                            <div className="mt-2 space-y-3 max-h-[60vh] overflow-auto">
-                                {transactionsItem.transactions.length === 0 ? (
-                                    <p className="text-sm text-zinc-500">Bu ürün için hareket bulunamadı.</p>
-                                ) : (
-                                    transactionsItem.transactions
-                                        .slice()
-                                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                                        .map((t) => (
-                                            <div key={t.id} className="flex items-center justify-between border-b border-white/5 pb-2 last:border-0">
-                                                <div>
-                                                    <p className="text-sm font-medium text-white">
-                                                        {(isOpeningItemTx(transactionsItem, t) ? 'Devir Bakiye' : (t.type === 'IN' ? 'Giriş' : 'Çıkış'))} • {t.quantity} adet
-                                                    </p>
-                                                    <p className="text-xs text-zinc-500">{new Date(t.date).toLocaleString('tr-TR')}</p>
-                                                    {t.channel && (
-                                                        <p className="text-xs text-zinc-500">{t.channel}</p>
-                                                    )}
-                                                    {t.customerName && (
-                                                        <p className="text-xs text-zinc-400">
-                                                            Cari: {t.customerName}{t.customerCode ? ` (${t.customerCode})` : ''}
-                                                        </p>
-                                                    )}
-                                                </div>
-                                                <span className={cn(
-                                                    "text-xs font-bold px-2 py-1 rounded-full",
-                                                    t.type === 'IN' ? "bg-green-500/10 text-green-500" : "bg-red-500/10 text-red-500"
-                                                )}>
-                                                    {t.type === 'IN' ? '+' : '-'}{t.quantity}
-                                                </span>
-                                            </div>
-                                        ))
-                                )}
+                    <DialogHeader>
+                        <DialogTitle>Stok Hareketleri</DialogTitle>
+                        <DialogDescription>
+                            {transactionsItem ? `${transactionsItem.name} için son hareketler` : 'Yükleniyor...'}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="mt-2 space-y-3 max-h-[60vh] overflow-auto">
+                        {loadingItem ? (
+                            <div className="flex items-center justify-center gap-2 py-8 text-sm text-zinc-500">
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                                Hareketler yükleniyor...
                             </div>
-                        </>
-                    )}
+                        ) : !transactionsItem || transactionsItem.transactions.length === 0 ? (
+                            <p className="text-sm text-zinc-500">Bu ürün için hareket bulunamadı.</p>
+                        ) : (
+                            transactionsItem.transactions
+                                .slice()
+                                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                                .map((t) => (
+                                    <div key={t.id} className="flex items-center justify-between border-b border-white/5 pb-2 last:border-0">
+                                        <div>
+                                            <p className="text-sm font-medium text-white">
+                                                {(isOpeningItemTx(transactionsItem, t) ? 'Devir Bakiye' : (t.type === 'IN' ? 'Giriş' : 'Çıkış'))} • {t.quantity} adet
+                                            </p>
+                                            <p className="text-xs text-zinc-500">{new Date(t.date).toLocaleString('tr-TR')}</p>
+                                            {t.channel && (
+                                                <p className="text-xs text-zinc-500">{t.channel}</p>
+                                            )}
+                                            {t.customerName && (
+                                                <p className="text-xs text-zinc-400">
+                                                    Cari: {t.customerName}{t.customerCode ? ` (${t.customerCode})` : ''}
+                                                </p>
+                                            )}
+                                        </div>
+                                        <span className={cn(
+                                            'text-xs font-bold px-2 py-1 rounded-full',
+                                            t.type === 'IN' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
+                                        )}>
+                                            {t.type === 'IN' ? '+' : '-'}{t.quantity}
+                                        </span>
+                                    </div>
+                                ))
+                        )}
+                    </div>
                 </DialogContent>
             </Dialog>
 

@@ -156,8 +156,33 @@ function itemsListWhereClause(brand: string | undefined, searchRaw: string | und
     return sql``;
 }
 
+/**
+ * transactions tablosu için gerekli index'ler. Var olan (production) veritabanları
+ * setupDatabase()'i yeniden çalıştırmadığından, index'leri ilk çağrıda tembel (lazy)
+ * olarak oluştururuz. Modül seviyesinde bir promise ile süreç başına yalnızca bir kez
+ * çalışır; sonraki çağrılar anında (DB'ye gitmeden) çözülür.
+ */
+let txIndexesReady: Promise<void> | null = null;
+async function ensureTransactionIndexes(): Promise<void> {
+    if (!txIndexesReady) {
+        txIndexesReady = (async () => {
+            await sql`CREATE INDEX IF NOT EXISTS transactions_item_id_idx ON transactions(item_id)`;
+            await sql`CREATE INDEX IF NOT EXISTS transactions_date_idx ON transactions(date DESC)`;
+            await sql`CREATE INDEX IF NOT EXISTS transactions_customer_id_idx ON transactions(customer_id)`;
+        })().catch((e) => {
+            // Başarısız olursa tekrar denenebilsin (ör. geçici bağlantı hatası)
+            txIndexesReady = null;
+            throw e;
+        });
+    }
+    return txIndexesReady;
+}
+
 export async function getItems() {
     try {
+        // Index'ler yoksa json_agg alt sorgusu her ürün için transactions tablosunu
+        // baştan sona tarar (çok yavaş). Index oluşumu başarısız olsa bile sorguyu çalıştır.
+        await ensureTransactionIndexes().catch(() => {});
         const items = await sql`
             ${ITEMS_SELECT_FROM}
             ORDER BY i.updated_at DESC
@@ -165,6 +190,140 @@ export async function getItems() {
         return mapDbRowsToStockItems(items);
     } catch (error) {
         console.error('Error fetching items:', error);
+        throw error;
+    }
+}
+
+/** Hareketler listesi için düz (flat) satır — ürün bilgisiyle birlikte tek hareket */
+export type MovementRow = {
+    id: string;
+    date: string;
+    type: 'IN' | 'OUT';
+    kind: string | null;
+    quantity: number;
+    channel: string | null;
+    unitPrice: number | null;
+    totalPrice: number | null;
+    customerId: string | null;
+    customerName: string | null;
+    customerCode: string | null;
+    itemId: string;
+    productName: string;
+    barcode: string;
+    image: string | null;
+    brand: string | null;
+    itemSellPrice: number;
+    itemCreatedAt: string;
+};
+
+/** timestamptz sütunu neon'dan Date ya da string gelebilir; her durumda ISO string'e çevir */
+function toIsoString(v: unknown): string {
+    if (v == null) return '';
+    if (v instanceof Date) return v.toISOString();
+    return String(v);
+}
+
+function mapMovementRows(rows: unknown): MovementRow[] {
+    return (rows as Record<string, unknown>[]).map((r) => ({
+        id: String(r.id),
+        date: toIsoString(r.date),
+        type: (r.type === 'OUT' ? 'OUT' : 'IN') as 'IN' | 'OUT',
+        kind: r.kind == null ? null : String(r.kind),
+        quantity: Number(r.quantity) || 0,
+        channel: r.channel == null ? null : String(r.channel),
+        unitPrice: r.unitPrice == null ? null : Number(r.unitPrice) || 0,
+        totalPrice: r.totalPrice == null ? null : Number(r.totalPrice) || 0,
+        customerId: r.customerId == null ? null : String(r.customerId),
+        customerName: r.customerName == null ? null : String(r.customerName),
+        customerCode: r.customerCode == null ? null : String(r.customerCode),
+        itemId: String(r.itemId),
+        productName: r.productName == null ? '' : String(r.productName),
+        barcode: r.barcode == null ? '' : String(r.barcode),
+        image: r.image == null ? null : String(r.image),
+        brand: r.brand == null ? null : String(r.brand),
+        itemSellPrice: Number(r.itemSellPrice) || 0,
+        itemCreatedAt: toIsoString(r.itemCreatedAt),
+    }));
+}
+
+/**
+ * Hareketleri doğrudan transactions tablosundan, tarihe göre azalan sırada ve
+ * sayfalı olarak getirir. getItems()'in aksine tüm stoğu belleğe yüklemez;
+ * "son 50 hareket" gibi bir ilk görünüm için çok hızlıdır (date index'i sayesinde).
+ */
+export async function getTransactionsPaginated(params: {
+    limit?: number;
+    offset?: number;
+    search?: string;
+    type?: 'ALL' | 'IN' | 'OUT';
+    startDate?: string; // ISO
+    endDate?: string; // ISO
+}): Promise<{ rows: MovementRow[]; total: number }> {
+    try {
+        await ensureTransactionIndexes().catch(() => {});
+
+        const limit = Math.min(Math.max(1, Math.floor(Number(params.limit) || 50)), 1000);
+        const offset = Math.min(Math.max(0, Math.floor(Number(params.offset) || 0)), 1_000_000);
+        const typeParam = params.type === 'IN' || params.type === 'OUT' ? params.type : 'ALL';
+        const startIso = (params.startDate ?? '').trim() || null;
+        const endIso = (params.endDate ?? '').trim() || null;
+        const q = (params.search ?? '').trim();
+        const p = `%${q}%`;
+
+        const countRows = await sql`
+            SELECT COUNT(*)::int AS c
+            FROM transactions t
+            JOIN items i ON i.id = t.item_id
+            LEFT JOIN customers c ON c.id = t.customer_id
+            WHERE (${typeParam} = 'ALL' OR t.type = ${typeParam})
+              AND (${startIso}::timestamptz IS NULL OR t.date >= ${startIso}::timestamptz)
+              AND (${endIso}::timestamptz IS NULL OR t.date <= ${endIso}::timestamptz)
+              AND (${q} = '' OR (
+                  i.name ILIKE ${p} OR COALESCE(i.barcode, '') ILIKE ${p}
+                  OR COALESCE(i.brand, '') ILIKE ${p} OR COALESCE(t.channel, '') ILIKE ${p}
+                  OR COALESCE(c.name, '') ILIKE ${p} OR COALESCE(c.customer_code, '') ILIKE ${p}
+              ))
+        `;
+        const total = Number((countRows as { c: number }[])[0]?.c) || 0;
+
+        const rows = await sql`
+            SELECT
+                t.id,
+                t.date,
+                t.type,
+                t.kind,
+                t.quantity,
+                t.channel,
+                t.unit_price AS "unitPrice",
+                t.total_price AS "totalPrice",
+                t.customer_id AS "customerId",
+                c.name AS "customerName",
+                c.customer_code AS "customerCode",
+                i.id AS "itemId",
+                i.name AS "productName",
+                i.barcode,
+                i.image,
+                i.brand,
+                i.sell_price AS "itemSellPrice",
+                i.created_at AS "itemCreatedAt"
+            FROM transactions t
+            JOIN items i ON i.id = t.item_id
+            LEFT JOIN customers c ON c.id = t.customer_id
+            WHERE (${typeParam} = 'ALL' OR t.type = ${typeParam})
+              AND (${startIso}::timestamptz IS NULL OR t.date >= ${startIso}::timestamptz)
+              AND (${endIso}::timestamptz IS NULL OR t.date <= ${endIso}::timestamptz)
+              AND (${q} = '' OR (
+                  i.name ILIKE ${p} OR COALESCE(i.barcode, '') ILIKE ${p}
+                  OR COALESCE(i.brand, '') ILIKE ${p} OR COALESCE(t.channel, '') ILIKE ${p}
+                  OR COALESCE(c.name, '') ILIKE ${p} OR COALESCE(c.customer_code, '') ILIKE ${p}
+              ))
+            ORDER BY t.date DESC
+            LIMIT ${limit} OFFSET ${offset}
+        `;
+
+        return { rows: mapMovementRows(rows), total };
+    } catch (error) {
+        console.error('Error fetching transactions (paginated):', error);
         throw error;
     }
 }

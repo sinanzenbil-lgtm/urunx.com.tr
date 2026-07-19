@@ -70,6 +70,11 @@ export async function setupDatabase() {
       );
     `;
 
+        // transactions performans index'leri (hareket listesi ve stok toplulaştırma için kritik)
+        await sql`CREATE INDEX IF NOT EXISTS transactions_item_id_idx ON transactions(item_id);`;
+        await sql`CREATE INDEX IF NOT EXISTS transactions_date_idx ON transactions(date DESC);`;
+        await sql`CREATE INDEX IF NOT EXISTS transactions_customer_id_idx ON transactions(customer_id);`;
+
         // Backward-compatible schema upgrades
         await sql`ALTER TABLE customer_payments ADD COLUMN IF NOT EXISTS direction TEXT NOT NULL DEFAULT 'IN';`;
         await sql`ALTER TABLE transactions ADD COLUMN IF NOT EXISTS unit_price DECIMAL DEFAULT 0;`;
