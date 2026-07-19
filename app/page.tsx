@@ -1,64 +1,132 @@
 'use client';
 
 import Link from 'next/link';
-import { useStockStore } from '@/lib/store';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Package, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
+import { Package, TrendingUp, TrendingDown, AlertCircle, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import * as dbActions from '@/lib/actions';
+import type { MovementRow, DashboardBrand } from '@/lib/actions';
+import { StockItem } from '@/types';
 
-type BrandSummary = {
-  name: string;
-  productCount: number;
+type DashboardStats = {
+  totalItems: number;
   totalQuantity: number;
   totalBuyValue: number;
   totalSellValue: number;
+  brands: DashboardBrand[];
 };
 
+type SalesSummary = {
+  Pazaryeri: { buyTotal: number; sellTotal: number };
+  Perakende: { buyTotal: number; sellTotal: number };
+  Toptan: { buyTotal: number; sellTotal: number };
+};
+
+const EMPTY_SALES: SalesSummary = {
+  Pazaryeri: { buyTotal: 0, sellTotal: 0 },
+  Perakende: { buyTotal: 0, sellTotal: 0 },
+  Toptan: { buyTotal: 0, sellTotal: 0 },
+};
+
+const tl = (v: number) => new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(v) || 0);
+
 export default function Home() {
-  const items = useStockStore((state) => state.items);
-  const dbSyncStatus = useStockStore((state) => state.dbSyncStatus);
-  const [movementItemId, setMovementItemId] = useState<string | null>(null);
   const yearStart = `${new Date().getFullYear()}-01-01`;
   const today = new Date().toISOString().split('T')[0];
   const [salesDates, setSalesDates] = useState({ start: yearStart, end: today });
 
-  const totalItems = items.length;
-  const totalQuantity = items.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [recentTx, setRecentTx] = useState<MovementRow[]>([]);
+  const [recentSales, setRecentSales] = useState<MovementRow[]>([]);
+  const [salesSummary, setSalesSummary] = useState<SalesSummary>(EMPTY_SALES);
+  const [loading, setLoading] = useState(true);
 
-  // Calculate total buy value (Cost * Quantity)
-  const totalValue = items.reduce((acc, item) => {
-    const price = Number(item.buyPrice) || 0;
-    const qty = Number(item.quantity) || 0;
-    return acc + (price * qty);
-  }, 0);
-
-  // Calculate potential sell value (Sell Price * Quantity)
-  const potentialValue = items.reduce((acc, item) => {
-    const price = Number(item.sellPrice) || 0;
-    const qty = Number(item.quantity) || 0;
-    return acc + (price * qty);
-  }, 0);
+  const [movementItemId, setMovementItemId] = useState<string | null>(null);
+  const [movementItem, setMovementItem] = useState<StockItem | null>(null);
+  const [loadingMovement, setLoadingMovement] = useState(false);
 
   const toDayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const capitalizeTr = (s: string) => s.charAt(0).toLocaleUpperCase('tr-TR') + s.slice(1);
 
-  // Flatten recent transactions for dashboard cards
-  const recentTransactions = useMemo(
-    () =>
-      items
-        .flatMap((item) =>
-          item.transactions.map((t) => ({
-            ...t,
-            itemId: item.id,
-            itemName: item.name,
-            itemImage: item.image,
-          }))
-        )
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
-    [items]
-  );
+  // İlk yükleme: üst kartlar + marka özeti + son 3 gün hareketleri + son satışlar (paralel, hızlı)
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setHours(0, 0, 0, 0);
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 2);
+    (async () => {
+      try {
+        const [s, recent, sales] = await Promise.all([
+          dbActions.getDashboardStats(),
+          dbActions.getTransactionsPaginated({ startDate: threeDaysAgo.toISOString(), limit: 500 }),
+          dbActions.getTransactionsPaginated({ type: 'OUT', limit: 8 }),
+        ]);
+        if (cancelled) return;
+        setStats(s);
+        setRecentTx(recent.rows as unknown as MovementRow[]);
+        setRecentSales(sales.rows as unknown as MovementRow[]);
+      } catch (e) {
+        if (!cancelled) console.error('Özet verileri yüklenemedi:', e);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Toplam Satışlar kartı: tarih aralığı değişince sunucudan yeniden hesaplanır.
+  useEffect(() => {
+    let cancelled = false;
+    const start = new Date(salesDates.start);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(salesDates.end);
+    end.setHours(23, 59, 59, 999);
+    (async () => {
+      try {
+        const res = await dbActions.getSalesSummaryByChannel(start.toISOString(), end.toISOString());
+        if (!cancelled) setSalesSummary(res);
+      } catch (e) {
+        if (!cancelled) console.error('Satış özeti yüklenemedi:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [salesDates.start, salesDates.end]);
+
+  // Bir ürünün hareketleri diyaloğu: talep üzerine getItemById ile çekilir.
+  useEffect(() => {
+    if (!movementItemId) {
+      setMovementItem(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingMovement(true);
+    (async () => {
+      try {
+        const item = await dbActions.getItemById(movementItemId);
+        if (!cancelled) setMovementItem(item);
+      } catch (e) {
+        if (!cancelled) console.error(e);
+      } finally {
+        if (!cancelled) setLoadingMovement(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [movementItemId]);
+
+  const totalItems = stats?.totalItems ?? 0;
+  const totalQuantity = stats?.totalQuantity ?? 0;
+  const totalValue = stats?.totalBuyValue ?? 0;
+  const potentialValue = stats?.totalSellValue ?? 0;
+  const brandSummaries = stats?.brands ?? [];
 
   const groupedRecentTransactions = useMemo(() => {
     const startOfToday = new Date();
@@ -76,9 +144,9 @@ export default function Home() {
     const groups = daySlots.reduce((acc, slot) => {
       acc[slot.key] = [];
       return acc;
-    }, {} as Record<string, typeof recentTransactions>);
+    }, {} as Record<string, MovementRow[]>);
 
-    recentTransactions.forEach((t) => {
+    recentTx.forEach((t) => {
       const key = toDayKey(new Date(t.date));
       if (groups[key]) groups[key].push(t);
     });
@@ -93,91 +161,20 @@ export default function Home() {
         };
       })
       .filter((g) => g.items.length > 0);
-  }, [recentTransactions]);
-
-  const movementItem = useMemo(() => {
-    if (!movementItemId) return null;
-    return items.find((i) => i.id === movementItemId) || null;
-  }, [items, movementItemId]);
+  }, [recentTx]);
 
   const movementRows = useMemo(() => {
     if (!movementItem) return [];
     return [...movementItem.transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [movementItem]);
 
-  // Brand-based summary calculation
-  const brandSummaries = Object.values(
-    items.reduce<Record<string, BrandSummary>>((acc, item) => {
-      const brand = item.brand || 'Markasız';
-      if (!acc[brand]) {
-        acc[brand] = {
-          name: brand,
-          productCount: 0,
-          totalQuantity: 0,
-          totalBuyValue: 0,
-          totalSellValue: 0,
-        };
-      }
-      acc[brand].productCount += 1;
-      acc[brand].totalQuantity += Number(item.quantity) || 0;
-      acc[brand].totalBuyValue += (Number(item.buyPrice) || 0) * (Number(item.quantity) || 0);
-      acc[brand].totalSellValue += (Number(item.sellPrice) || 0) * (Number(item.quantity) || 0);
-      return acc;
-    }, {})
-  ).sort((a, b) => b.productCount - a.productCount);
-
-  const salesSummary = useMemo(() => {
-    const start = new Date(salesDates.start);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(salesDates.end);
-    end.setHours(23, 59, 59, 999);
-
-    const totals = {
-      Pazaryeri: { buyTotal: 0, sellTotal: 0 },
-      Perakende: { buyTotal: 0, sellTotal: 0 },
-      Toptan: { buyTotal: 0, sellTotal: 0 },
-    };
-
-    items.forEach((item) => {
-      item.transactions.forEach((t) => {
-        const tDate = new Date(t.date);
-        if (t.type === 'OUT' && tDate >= start && tDate <= end) {
-          const channel = (t.channel as keyof typeof totals) || 'Perakende';
-          if (channel in totals) {
-            totals[channel].buyTotal += t.quantity * (Number(item.buyPrice) || 0);
-            const unit = Number(t.unitPrice) || Number(item.sellPrice) || 0;
-            const total = Number(t.totalPrice) || (unit * (Number(t.quantity) || 0));
-            totals[channel].sellTotal += total;
-          }
-        }
-      });
-    });
-
-    return totals;
-  }, [items, salesDates]);
-
-  const recentSales = useMemo(() => {
-    return items
-      .flatMap(item =>
-        item.transactions
-          .filter(t => t.type === 'OUT')
-          .map(t => ({
-            ...t,
-            itemName: item.name,
-            channel: t.channel || 'Perakende',
-          }))
-      )
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      .slice(0, 8);
-  }, [items]);
-
   const totalSalesBuy =
     salesSummary.Pazaryeri.buyTotal + salesSummary.Perakende.buyTotal + salesSummary.Toptan.buyTotal;
   const totalSalesSell =
     salesSummary.Pazaryeri.sellTotal + salesSummary.Perakende.sellTotal + salesSummary.Toptan.sellTotal;
 
-  // Avoid showing stale localStorage numbers before DB sync finishes.
-  if (dbSyncStatus !== 'synced') {
+  // Verileri çekerken iskelet göster (eski localStorage değerleri asla görünmesin).
+  if (loading) {
     return (
       <div className="space-y-6 animate-enter">
         <div className="flex items-center justify-between">
@@ -197,8 +194,9 @@ export default function Home() {
             </Card>
           ))}
         </div>
-        <p className="text-sm text-zinc-500">
-          Veriler eşitleniyor{dbSyncStatus === 'error' ? ' (hata oluştu)' : '...'}
+        <p className="text-sm text-zinc-500 flex items-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Veriler yükleniyor...
         </p>
       </div>
     );
@@ -239,9 +237,7 @@ export default function Home() {
             <TrendingDown className="h-4 w-4 text-green-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-500">
-              {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(totalValue)}
-            </div>
+            <div className="text-2xl font-bold text-green-500">{tl(totalValue)}</div>
             <p className="text-xs text-zinc-500">Maliyet bazlı toplam değer</p>
           </CardContent>
         </Card>
@@ -252,9 +248,7 @@ export default function Home() {
             <TrendingUp className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-500">
-              {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(potentialValue)}
-            </div>
+            <div className="text-2xl font-bold text-blue-500">{tl(potentialValue)}</div>
             <p className="text-xs text-zinc-500">Toptan satış fiyatı bazlı değer</p>
           </CardContent>
         </Card>
@@ -287,7 +281,7 @@ export default function Home() {
                                 onClick={() => setMovementItemId(t.itemId)}
                                 className="text-sm font-medium leading-none text-left text-white hover:underline underline-offset-4 line-clamp-1"
                               >
-                                {t.itemName}
+                                {t.productName}
                               </button>
                               <p className="text-[11px] text-zinc-500 mt-1">
                                 {new Date(t.date).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
@@ -313,43 +307,44 @@ export default function Home() {
 
         <Dialog open={!!movementItemId} onOpenChange={(open) => !open && setMovementItemId(null)}>
           <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 p-6">
-            {movementItem && (
-              <>
-                <DialogHeader>
-                  <DialogTitle>Ürün Hareketliliği</DialogTitle>
-                  <DialogDescription>
-                    {movementItem.name} için son hareketler
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="mt-2 space-y-3 max-h-[60vh] overflow-auto">
-                  {movementRows.length === 0 ? (
-                    <p className="text-sm text-zinc-500">Bu ürün için hareket bulunamadı.</p>
-                  ) : (
-                    movementRows.map((t) => (
-                      <div key={t.id} className="flex items-center justify-between border-b border-white/5 pb-2 last:border-0">
-                        <div>
-                          <p className="text-sm font-medium text-white">
-                            {t.type === 'IN' && t.kind === 'RETURN' ? 'İade' : t.type === 'IN' ? 'Giriş' : 'Çıkış'} • {t.quantity} adet
-                          </p>
-                          <p className="text-xs text-zinc-500">{new Date(t.date).toLocaleString('tr-TR')}</p>
-                          {t.channel ? (
-                            <p className="text-[11px] text-zinc-500">
-                              {t.channel}
-                              {t.channel === 'Toptan' && (t.customerName || t.customerCode)
-                                ? ` • ${t.customerName || t.customerCode}`
-                                : ''}
-                            </p>
-                          ) : null}
-                        </div>
-                        <span className={`text-xs font-bold px-2 py-1 rounded-full ${t.type === 'IN' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
-                          {t.type === 'IN' ? '+' : '-'}{t.quantity}
-                        </span>
-                      </div>
-                    ))
-                  )}
+            <DialogHeader>
+              <DialogTitle>Ürün Hareketliliği</DialogTitle>
+              <DialogDescription>
+                {movementItem ? `${movementItem.name} için son hareketler` : 'Yükleniyor...'}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-2 space-y-3 max-h-[60vh] overflow-auto">
+              {loadingMovement ? (
+                <div className="flex items-center justify-center gap-2 py-8 text-sm text-zinc-500">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Hareketler yükleniyor...
                 </div>
-              </>
-            )}
+              ) : movementRows.length === 0 ? (
+                <p className="text-sm text-zinc-500">Bu ürün için hareket bulunamadı.</p>
+              ) : (
+                movementRows.map((t) => (
+                  <div key={t.id} className="flex items-center justify-between border-b border-white/5 pb-2 last:border-0">
+                    <div>
+                      <p className="text-sm font-medium text-white">
+                        {t.type === 'IN' && t.kind === 'RETURN' ? 'İade' : t.type === 'IN' ? 'Giriş' : 'Çıkış'} • {t.quantity} adet
+                      </p>
+                      <p className="text-xs text-zinc-500">{new Date(t.date).toLocaleString('tr-TR')}</p>
+                      {t.channel ? (
+                        <p className="text-[11px] text-zinc-500">
+                          {t.channel}
+                          {t.channel === 'Toptan' && (t.customerName || t.customerCode)
+                            ? ` • ${t.customerName || t.customerCode}`
+                            : ''}
+                        </p>
+                      ) : null}
+                    </div>
+                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${t.type === 'IN' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                      {t.type === 'IN' ? '+' : '-'}{t.quantity}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
           </DialogContent>
         </Dialog>
 
@@ -440,13 +435,9 @@ export default function Home() {
                 <div key={channel} className="bg-zinc-900/50 border border-white/5 rounded-lg p-4">
                   <p className="text-xs text-zinc-500 uppercase tracking-wider">{channel} Satış</p>
                   <p className="text-sm text-zinc-400 mt-2">Satılan Malın Alış Maliyeti</p>
-                  <p className="text-lg font-bold text-emerald-400">
-                    {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(salesSummary[channel].buyTotal)}
-                  </p>
+                  <p className="text-lg font-bold text-emerald-400">{tl(salesSummary[channel].buyTotal)}</p>
                   <p className="text-sm text-zinc-400 mt-2">Satış Tutarı</p>
-                  <p className="text-lg font-bold text-blue-400">
-                    {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(salesSummary[channel].sellTotal)}
-                  </p>
+                  <p className="text-lg font-bold text-blue-400">{tl(salesSummary[channel].sellTotal)}</p>
                 </div>
               ))}
             </div>
@@ -457,16 +448,10 @@ export default function Home() {
               </div>
               <div className="text-right">
                 <p className="text-sm text-zinc-400">Satılan Malın Alış Maliyeti Toplamı</p>
-                <p className="text-xl font-bold text-emerald-400">
-                  {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(totalSalesBuy)}
-                </p>
+                <p className="text-xl font-bold text-emerald-400">{tl(totalSalesBuy)}</p>
                 <p className="text-sm text-zinc-400 mt-1">Satış Toplamı</p>
-                <p className="text-xl font-bold text-blue-400">
-                  {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(totalSalesSell)}
-                </p>
-                <p className="text-xs text-zinc-500 mt-1">
-                  Satışların maliyeti: {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(totalSalesBuy)}
-                </p>
+                <p className="text-xl font-bold text-blue-400">{tl(totalSalesSell)}</p>
+                <p className="text-xs text-zinc-500 mt-1">Satışların maliyeti: {tl(totalSalesBuy)}</p>
               </div>
             </div>
           </CardContent>
@@ -481,12 +466,12 @@ export default function Home() {
               {recentSales.length === 0 ? (
                 <p className="text-sm text-zinc-500">Henüz satış yok.</p>
               ) : (
-                recentSales.map((t, i) => (
-                  <div key={i} className="flex items-center justify-between border-b border-white/5 last:border-0 pb-2 last:pb-0">
+                recentSales.map((t) => (
+                  <div key={t.id} className="flex items-center justify-between border-b border-white/5 last:border-0 pb-2 last:pb-0">
                     <div>
-                      <p className="text-sm font-medium leading-none">{t.itemName}</p>
+                      <p className="text-sm font-medium leading-none">{t.productName}</p>
                       <p className="text-xs text-zinc-500">{new Date(t.date).toLocaleString('tr-TR')}</p>
-                      <p className="text-xs text-zinc-500">{t.channel}</p>
+                      <p className="text-xs text-zinc-500">{t.channel || 'Perakende'}</p>
                     </div>
                     <div className="font-bold text-red-500">-{t.quantity}</div>
                   </div>

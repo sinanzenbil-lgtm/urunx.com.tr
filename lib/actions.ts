@@ -372,6 +372,122 @@ export async function getTransactionById(id: string): Promise<MovementRow | null
     }
 }
 
+export type DashboardBrand = {
+    name: string;
+    productCount: number;
+    totalQuantity: number;
+    totalBuyValue: number;
+    totalSellValue: number;
+};
+
+/**
+ * Özet paneli üst kartları + marka bazlı stok özeti — yalnızca items tablosundan
+ * toplulaştırma. Tüm stoğu belleğe yüklemeden tek sorguda hesaplanır (çok hızlı).
+ */
+export async function getDashboardStats(): Promise<{
+    totalItems: number;
+    totalQuantity: number;
+    totalBuyValue: number;
+    totalSellValue: number;
+    brands: DashboardBrand[];
+}> {
+    try {
+        const totalsRows = await sql`
+            SELECT
+                COUNT(*)::int AS "totalItems",
+                COALESCE(SUM(quantity), 0)::int AS "totalQuantity",
+                COALESCE(SUM(buy_price * quantity), 0) AS "totalBuyValue",
+                COALESCE(SUM(sell_price * quantity), 0) AS "totalSellValue"
+            FROM items
+        `;
+        const tr = (totalsRows as Record<string, unknown>[])[0] || {};
+
+        const brandRows = await sql`
+            SELECT
+                COALESCE(NULLIF(BTRIM(brand), ''), 'Markasız') AS name,
+                COUNT(*)::int AS "productCount",
+                COALESCE(SUM(quantity), 0)::int AS "totalQuantity",
+                COALESCE(SUM(buy_price * quantity), 0) AS "totalBuyValue",
+                COALESCE(SUM(sell_price * quantity), 0) AS "totalSellValue"
+            FROM items
+            GROUP BY COALESCE(NULLIF(BTRIM(brand), ''), 'Markasız')
+            ORDER BY "productCount" DESC, name ASC
+        `;
+        const brands = (brandRows as Record<string, unknown>[]).map((b) => ({
+            name: String(b.name ?? 'Markasız'),
+            productCount: Number(b.productCount) || 0,
+            totalQuantity: Number(b.totalQuantity) || 0,
+            totalBuyValue: Number(b.totalBuyValue) || 0,
+            totalSellValue: Number(b.totalSellValue) || 0,
+        }));
+
+        return {
+            totalItems: Number(tr.totalItems) || 0,
+            totalQuantity: Number(tr.totalQuantity) || 0,
+            totalBuyValue: Number(tr.totalBuyValue) || 0,
+            totalSellValue: Number(tr.totalSellValue) || 0,
+            brands,
+        };
+    } catch (error) {
+        console.error('Error fetching dashboard stats:', error);
+        throw error;
+    }
+}
+
+/**
+ * Özet panelindeki "Toplam Satışlar" kartı — seçili tarih aralığında OUT hareketlerin
+ * kanal bazlı (Pazaryeri/Perakende/Toptan) alış maliyeti ve satış tutarı. Tek grup sorgusu.
+ */
+export async function getSalesSummaryByChannel(
+    startDate: string,
+    endDate: string
+): Promise<{
+    Pazaryeri: { buyTotal: number; sellTotal: number };
+    Perakende: { buyTotal: number; sellTotal: number };
+    Toptan: { buyTotal: number; sellTotal: number };
+}> {
+    const result = {
+        Pazaryeri: { buyTotal: 0, sellTotal: 0 },
+        Perakende: { buyTotal: 0, sellTotal: 0 },
+        Toptan: { buyTotal: 0, sellTotal: 0 },
+    };
+    try {
+        await ensureTransactionIndexes().catch(() => {});
+        const startIso = (startDate ?? '').trim() || null;
+        const endIso = (endDate ?? '').trim() || null;
+
+        const rows = await sql`
+            SELECT
+                COALESCE(t.channel, 'Perakende') AS channel,
+                COALESCE(SUM(t.quantity * i.buy_price), 0) AS "buyTotal",
+                COALESCE(SUM(
+                    CASE
+                        WHEN COALESCE(t.total_price, 0) <> 0 THEN t.total_price
+                        ELSE (CASE WHEN COALESCE(t.unit_price, 0) <> 0 THEN t.unit_price ELSE i.sell_price END) * t.quantity
+                    END
+                ), 0) AS "sellTotal"
+            FROM transactions t
+            JOIN items i ON i.id = t.item_id
+            WHERE t.type = 'OUT'
+              AND (${startIso}::timestamptz IS NULL OR t.date >= ${startIso}::timestamptz)
+              AND (${endIso}::timestamptz IS NULL OR t.date <= ${endIso}::timestamptz)
+              AND (t.channel IS NULL OR t.channel IN ('Pazaryeri', 'Perakende', 'Toptan'))
+            GROUP BY COALESCE(t.channel, 'Perakende')
+        `;
+
+        for (const r of rows as Record<string, unknown>[]) {
+            const ch = String(r.channel);
+            if (ch === 'Pazaryeri' || ch === 'Perakende' || ch === 'Toptan') {
+                result[ch] = { buyTotal: Number(r.buyTotal) || 0, sellTotal: Number(r.sellTotal) || 0 };
+            }
+        }
+        return result;
+    } catch (error) {
+        console.error('Error fetching sales summary:', error);
+        throw error;
+    }
+}
+
 export async function getItemsTotalCount(): Promise<number> {
     try {
         const rows = await sql`SELECT COUNT(*)::int AS c FROM items`;
