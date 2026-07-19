@@ -6,9 +6,8 @@ import { useRouter } from 'next/navigation';
 import { useStockStore } from '@/lib/store';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Search, Edit, Trash2, X, ChevronRight } from 'lucide-react';
+import { Search, Edit, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { StockItem } from '@/types';
 import * as dbActions from '@/lib/actions';
@@ -24,7 +23,6 @@ export default function SearchPage() {
     const [query, setQuery] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [editingItem, setEditingItem] = useState<StockItem | null>(null);
-    const [transactionsItem, setTransactionsItem] = useState<StockItem | null>(null);
     const [listItems, setListItems] = useState<StockItem[]>([]);
     const [listTotal, setListTotal] = useState(0);
     const [listLoading, setListLoading] = useState(true);
@@ -128,7 +126,7 @@ export default function SearchPage() {
                         <Card
                             key={item.id}
                             className="group relative hover:border-primary/50 transition-colors cursor-pointer overflow-hidden"
-                            onClick={() => setTransactionsItem(item)}
+                            onClick={() => router.push(`/urunler/${encodeURIComponent(item.id)}/hareketler`)}
                         >
                             <div
                                 className="absolute top-2 right-2 z-10 flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -198,58 +196,6 @@ export default function SearchPage() {
                     )}
                 </div>
             )}
-
-            <Dialog open={!!transactionsItem} onOpenChange={(open) => !open && setTransactionsItem(null)}>
-                <DialogContent className="sm:max-w-lg bg-zinc-950 border-zinc-800 p-6">
-                    {transactionsItem && (
-                        <>
-                            <DialogHeader>
-                                <DialogTitle>Stok Hareketleri</DialogTitle>
-                                <DialogDescription>
-                                    {transactionsItem.name} için son hareketler
-                                </DialogDescription>
-                            </DialogHeader>
-                            <div className="mt-2 space-y-3 max-h-[60vh] overflow-auto">
-                                {transactionsItem.transactions.length === 0 ? (
-                                    <p className="text-sm text-zinc-500">Bu ürün için hareket bulunamadı.</p>
-                                ) : (
-                                    transactionsItem.transactions
-                                        .slice()
-                                        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-                                        .map((t) => (
-                                            <button
-                                                key={t.id}
-                                                type="button"
-                                                onClick={() => {
-                                                    setTransactionsItem(null);
-                                                    router.push(`/hareketler/${encodeURIComponent(t.id)}`);
-                                                }}
-                                                title="Bu hareketin detayına git"
-                                                className="w-full flex items-center justify-between gap-3 border-b border-white/5 pb-2 last:border-0 text-left rounded-lg px-2 -mx-2 py-1.5 hover:bg-white/5 transition-colors cursor-pointer group"
-                                            >
-                                                <div>
-                                                    <p className="text-sm font-medium text-white">
-                                                        {t.type === 'IN' ? 'Giriş' : 'Çıkış'} • {t.quantity} adet
-                                                    </p>
-                                                    <p className="text-xs text-zinc-500">{new Date(t.date).toLocaleString('tr-TR')}</p>
-                                                    {t.channel && (
-                                                        <p className="text-xs text-zinc-500">{t.channel}</p>
-                                                    )}
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${t.type === 'IN' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
-                                                        {t.type === 'IN' ? '+' : '-'}{t.quantity}
-                                                    </span>
-                                                    <ChevronRight className="w-4 h-4 text-zinc-600 group-hover:text-zinc-300 transition-colors" />
-                                                </div>
-                                            </button>
-                                        ))
-                                )}
-                            </div>
-                        </>
-                    )}
-                </DialogContent>
-            </Dialog>
 
             {/* Edit Modal - portal ile body'e render, her zaman en üstte görünsün */}
             {editingItem && typeof document !== 'undefined' && createPortal(
