@@ -1,5 +1,6 @@
 'use server';
 
+import { readBackupOverview, type BackupOverview } from './backup';
 import { sql } from './db';
 import { hashPassword, verifyPassword } from './password';
 import {
@@ -1771,5 +1772,18 @@ export async function updateMemberPassword(memberId: string, newPassword: string
     } catch (error) {
         console.error('updateMemberPassword:', error);
         return { success: false as const, error };
+    }
+}
+
+/** Ayarlar > Yedekleme kutusu: paket boyutu ve kayıt sayıları özeti */
+export async function getBackupOverview(): Promise<
+    { success: true; overview: BackupOverview } | { success: false; error: string }
+> {
+    try {
+        const overview = await readBackupOverview();
+        return { success: true, overview };
+    } catch (error) {
+        console.error('getBackupOverview:', error);
+        return { success: false, error: safeActionError(error) };
     }
 }

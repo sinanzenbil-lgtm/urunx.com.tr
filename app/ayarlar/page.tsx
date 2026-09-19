@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useStockStore } from '@/lib/store';
 import { ALL_MENU_KEYS, CompanySettings, type MenuRouteKey, MENU_ROUTE_OPTIONS, type MemberPublic } from '@/types';
 import * as dbActions from '@/lib/actions';
+import BackupCard from '@/components/backup-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -375,6 +376,8 @@ export default function SettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      <BackupCard user={user} />
 
       {canManageMembers ? (
         <Card>

@@ -58,6 +58,25 @@ export interface CompanySettings {
     updatedAt?: string;
 }
 
+/** Ayarlar > Yedekleme kutusundaki paket seçenekleri */
+export interface BackupOptions {
+    /** Ürün görselleri ve logo, pakete ayrı resim dosyaları olarak eklensin */
+    images: boolean;
+    /** Excel ile açılabilen CSV tabloları eklensin */
+    csv: boolean;
+    /** Tek dosyadan geri yükleme yapan SQL betiği eklensin (görseller gömülü) */
+    sql: boolean;
+    /** Üye hesapları (şifre özetleri dahil) eklensin */
+    members: boolean;
+}
+
+export const DEFAULT_BACKUP_OPTIONS: BackupOptions = {
+    images: true,
+    csv: true,
+    sql: true,
+    members: true,
+};
+
 export interface StockItem {
     id: string;
     barcode: string;
