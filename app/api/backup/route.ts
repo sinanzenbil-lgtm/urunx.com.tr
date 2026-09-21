@@ -1,31 +1,21 @@
 /**
  * Tam sistem yedeği indirme ucu.
  *
- * POST /api/backup  { username, password, options }
+ * POST /api/backup  { options?, createdBy? }
  *   → ZIP paketi (akış halinde döner; büyük paketlerde bellek şişmez)
  *
- * Uygulamada sunucu tarafı oturum yok; bu uç tüm ticari veriyi verdiği için
- * istek gövdesinde üye adı + şifre doğrulaması ister ve yalnızca "ayarlar"
- * yetkisi olan üyelere izin verir.
+ * Ayarlar ekranındaki yedek tuşu tek tıkla çalışsın diye doğrulama istenmez.
+ * Uygulamada sunucu tarafı oturum bulunmadığından bu uca istek atabilen
+ * herkes paketi alabilir; erişimi daraltmak gerekirse girişte oturum çerezi
+ * üretilip burada kontrol edilmelidir.
  */
 import { backupEntries, backupFileName, createBackupContext } from '@/lib/backup';
-import { sql } from '@/lib/db';
-import { verifyPassword } from '@/lib/password';
 import { createZipStream } from '@/lib/zip-stream';
 import { DEFAULT_BACKUP_OPTIONS, type BackupOptions } from '@/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
-
-type MemberRow = {
-  id: string;
-  username: string;
-  password_hash: string;
-  first_name: string | null;
-  last_name: string | null;
-  menu_routes: unknown;
-};
 
 function jsonError(message: string, status: number) {
   return new Response(JSON.stringify({ success: false, error: message }), {
@@ -34,17 +24,11 @@ function jsonError(message: string, status: number) {
   });
 }
 
-function canOpenSettings(menuRoutes: unknown): boolean {
-  let routes: unknown = menuRoutes;
-  if (typeof routes === 'string') {
-    try {
-      routes = JSON.parse(routes);
-    } catch {
-      routes = [];
-    }
-  }
-  if (!Array.isArray(routes) || routes.length === 0) return true; // eski kayıtlar: tüm menüler
-  return routes.includes('ayarlar');
+/** Künyeye ve OKUBENI dosyasına yazılan "oluşturan" bilgisi; metne gömüldüğü için temizlenir. */
+function normalizeCreatedBy(raw: unknown): string {
+  const text = typeof raw === 'string' ? raw : '';
+  const cleaned = text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return cleaned || 'Bilinmiyor';
 }
 
 function normalizeOptions(raw: unknown): BackupOptions {
@@ -77,41 +61,17 @@ function toReadableStream(generator: AsyncGenerator<Buffer>): ReadableStream<Uin
 }
 
 export async function POST(request: Request) {
-  let body: { username?: string; password?: string; options?: unknown };
+  // Gövde isteğe bağlı: boş POST da varsayılan seçeneklerle tam yedek üretir.
+  let body: { options?: unknown; createdBy?: unknown } = {};
   try {
-    body = await request.json();
+    const text = await request.text();
+    if (text.trim()) body = JSON.parse(text);
   } catch {
     return jsonError('invalid_body', 400);
   }
 
-  const username = String(body.username || '').trim();
-  const password = String(body.password || '');
-  if (!username || !password) return jsonError('missing_credentials', 400);
-
-  let member: MemberRow | undefined;
-  try {
-    const rows = (await sql`
-      SELECT id, username, password_hash, first_name, last_name, menu_routes
-      FROM members
-      WHERE lower(username) = lower(${username})
-      LIMIT 1
-    `) as MemberRow[];
-    member = rows[0];
-  } catch (error) {
-    console.error('Yedek doğrulama hatası:', error);
-    return jsonError('server_error', 500);
-  }
-
-  if (!member || !verifyPassword(password, member.password_hash)) {
-    // Kaba kuvvet denemelerini biraz yavaşlat
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    return jsonError('invalid_credentials', 401);
-  }
-  if (!canOpenSettings(member.menu_routes)) return jsonError('forbidden', 403);
-
   const options = normalizeOptions(body.options);
-  const fullName = `${member.first_name || ''} ${member.last_name || ''}`.trim();
-  const context = createBackupContext(options, fullName ? `${fullName} (${member.username})` : member.username);
+  const context = createBackupContext(options, normalizeCreatedBy(body.createdBy));
   const fileName = `${backupFileName(context.createdAt)}.zip`;
 
   const stream = toReadableStream(createZipStream(backupEntries(context)));

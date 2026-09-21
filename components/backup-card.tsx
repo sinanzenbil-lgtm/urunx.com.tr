@@ -11,13 +11,11 @@ import {
   Images,
   Loader2,
   RefreshCw,
-  ShieldCheck,
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import * as dbActions from '@/lib/actions';
 import type { BackupOverview } from '@/lib/backup';
 import { formatBytes } from '@/lib/utils';
@@ -80,7 +78,6 @@ export default function BackupCard({ user }: { user: User | null }) {
   const [overview, setOverview] = useState<BackupOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [options, setOptions] = useState<BackupOptions>({ ...DEFAULT_BACKUP_OPTIONS });
-  const [password, setPassword] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [received, setReceived] = useState(0);
   const [lastBackup, setLastBackup] = useState<LastBackup | null>(null);
@@ -114,14 +111,7 @@ export default function BackupCard({ user }: { user: User | null }) {
   const toggle = (key: keyof BackupOptions) => setOptions((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const startDownload = async () => {
-    if (!user?.username) {
-      toast.error('Üye bilgisi bulunamadı. Çıkış yapıp tekrar giriş yapın.');
-      return;
-    }
-    if (!password) {
-      toast.error('Güvenlik için şifrenizi girin');
-      return;
-    }
+    if (downloading) return;
 
     setDownloading(true);
     setReceived(0);
@@ -129,21 +119,16 @@ export default function BackupCard({ user }: { user: User | null }) {
     const toastId = toast.loading('Yedek paketi hazırlanıyor… Bu işlem veri boyutuna göre sürebilir.');
 
     try {
+      const fullName = `${user?.firstName || ''} ${user?.lastName || ''}`.trim();
+      const createdBy = [fullName, user?.username ? `(${user.username})` : ''].filter(Boolean).join(' ');
       const res = await fetch('/api/backup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: user.username, password, options }),
+        body: JSON.stringify({ options, createdBy }),
       });
 
       if (!res.ok) {
-        const problem = await res.json().catch(() => ({ error: 'server_error' }));
-        const messages: Record<string, string> = {
-          invalid_credentials: 'Şifre hatalı',
-          forbidden: 'Bu işlem için Ayarlar yetkisi gerekiyor',
-          missing_credentials: 'Üye adı veya şifre eksik',
-          invalid_body: 'İstek geçersiz',
-        };
-        toast.error(messages[problem?.error as string] || 'Yedek alınamadı', { id: toastId });
+        toast.error('Yedek alınamadı. Lütfen tekrar deneyin.', { id: toastId });
         return;
       }
 
@@ -190,7 +175,6 @@ export default function BackupCard({ user }: { user: User | null }) {
         // localStorage kapalıysa sorun değil
       }
       setLastBackup(record);
-      setPassword('');
       toast.success(`Yedek indirildi (${formatBytes(total)})`, { id: toastId });
     } catch (error) {
       console.error(error);
@@ -351,37 +335,15 @@ export default function BackupCard({ user }: { user: User | null }) {
 
         {/* İndirme */}
         <div className="space-y-3 rounded-md border border-zinc-800 bg-zinc-950/40 p-3">
-          <div className="flex items-center gap-2 text-sm text-zinc-300">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            Güvenlik doğrulaması
-          </div>
-          <p className="text-xs text-zinc-500">
-            Paket tüm ticari verinizi içerdiği için indirmeden önce
-            {user?.username ? ` "${user.username}" ` : ' '}
-            hesabınızın şifresini girin.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Giriş şifreniz"
-              autoComplete="current-password"
-              disabled={downloading}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !downloading) void startDownload();
-              }}
-            />
-            <Button
-              type="button"
-              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 sm:w-64 shrink-0"
-              onClick={() => void startDownload()}
-              disabled={downloading || loading}
-            >
-              {downloading ? <Loader2 className="w-4 h-4 animate-spin" /> : <HardDriveDownload className="w-4 h-4" />}
-              {downloading ? 'Yedek hazırlanıyor…' : 'Yedeği İndir (ZIP)'}
-            </Button>
-          </div>
+          <Button
+            type="button"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 w-full h-12 text-base"
+            onClick={() => void startDownload()}
+            disabled={downloading}
+          >
+            {downloading ? <Loader2 className="w-5 h-5 animate-spin" /> : <HardDriveDownload className="w-5 h-5" />}
+            {downloading ? 'Yedek hazırlanıyor…' : 'Yedeği İndir (ZIP)'}
+          </Button>
 
           {downloading ? (
             <div className="space-y-1">
