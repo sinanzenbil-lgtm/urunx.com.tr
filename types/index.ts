@@ -94,6 +94,54 @@ export interface StockItem {
     updatedAt: string;
 }
 
+export type QuoteStatus = 'HAZIRLANDI' | 'GONDERILDI' | 'ONAYLANDI' | 'REDDEDILDI';
+
+export const QUOTE_STATUS_OPTIONS: { key: QuoteStatus; label: string }[] = [
+    { key: 'HAZIRLANDI', label: 'Hazırlandı' },
+    { key: 'GONDERILDI', label: 'Gönderildi' },
+    { key: 'ONAYLANDI', label: 'Onaylandı' },
+    { key: 'REDDEDILDI', label: 'Reddedildi' },
+];
+
+/** Teklif satırı (ürün bilgileri teklif anında kopyalanır, görsel ürün tablosundan okunur) */
+export interface QuoteItem {
+    id: string;
+    quoteId?: string;
+    itemId?: string | null;
+    name: string;
+    stockCode?: string | null;
+    barcode?: string | null;
+    brand?: string | null;
+    image?: string | null;
+    buyPrice: number;   // teklif anındaki alış fiyatı (bilgi amaçlı, PDF'e yazılmaz)
+    unitPrice: number;  // teklif edilen KDV hariç birim fiyat
+    quantity: number;
+    vatRate: number;    // %
+    lineSubtotal: number; // unitPrice * quantity
+    lineVat: number;      // lineSubtotal * vatRate / 100
+    lineTotal: number;    // lineSubtotal + lineVat
+    sortOrder?: number;
+}
+
+export interface Quote {
+    id: string;
+    quoteNo: string;
+    customerId?: string | null;
+    customerName: string;
+    customerCode?: string | null;
+    date: string;          // ISO
+    validUntil?: string | null;
+    note?: string | null;
+    status: QuoteStatus;
+    subtotal: number;
+    vatTotal: number;
+    grandTotal: number;
+    itemCount?: number;
+    items?: QuoteItem[];
+    createdAt?: string;
+    updatedAt?: string;
+}
+
 /** Navbar / yetki anahtarları (URL segment ile eşleşir) */
 export type MenuRouteKey =
     | 'ozet'
@@ -102,6 +150,7 @@ export type MenuRouteKey =
     | 'cikis'
     | 'satis'
     | 'cari'
+    | 'teklif'
     | 'urunler'
     | 'hareketler'
     | 'ara'
@@ -115,6 +164,7 @@ export const ALL_MENU_KEYS: MenuRouteKey[] = [
     'cikis',
     'satis',
     'cari',
+    'teklif',
     'urunler',
     'hareketler',
     'ara',
@@ -129,6 +179,7 @@ export const MENU_ROUTE_OPTIONS: { key: MenuRouteKey; label: string }[] = [
     { key: 'cikis', label: 'Hızlı Çıkış' },
     { key: 'satis', label: 'Satış' },
     { key: 'cari', label: 'Cari Takip' },
+    { key: 'teklif', label: 'Teklif' },
     { key: 'urunler', label: 'Ürün Listesi' },
     { key: 'hareketler', label: 'Hareketler' },
     { key: 'ara', label: 'Stok Ara' },

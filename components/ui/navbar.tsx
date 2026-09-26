@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useStockStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, LogIn, LogOut, Search, Package, History, BarChart3, ShoppingCart, Users, RotateCcw, Settings } from 'lucide-react';
+import { LayoutDashboard, LogIn, LogOut, Search, Package, History, BarChart3, ShoppingCart, Users, RotateCcw, Settings, FileText } from 'lucide-react';
 import type { MenuRouteKey } from '@/types';
 import { pathnameMatchesRoute } from '@/lib/route-access';
 
@@ -15,6 +15,7 @@ const iconByKey: Record<MenuRouteKey, typeof LayoutDashboard> = {
     cikis: LogOut,
     satis: ShoppingCart,
     cari: Users,
+    teklif: FileText,
     urunler: Package,
     hareketler: History,
     ara: Search,
@@ -29,6 +30,7 @@ const routes: { href: string; label: string; key: MenuRouteKey }[] = [
     { href: '/cikis', label: 'Hızlı Çıkış', key: 'cikis' },
     { href: '/satis', label: 'Satış', key: 'satis' },
     { href: '/cari', label: 'Cari Takip', key: 'cari' },
+    { href: '/teklif', label: 'Teklif', key: 'teklif' },
     { href: '/urunler', label: 'Ürün Listesi', key: 'urunler' },
     { href: '/hareketler', label: 'Hareketler', key: 'hareketler' },
     { href: '/ara', label: 'Stok Ara', key: 'ara' },

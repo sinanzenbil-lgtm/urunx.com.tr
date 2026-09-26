@@ -118,6 +118,49 @@ export async function setupDatabase() {
             );
         `;
 
+        // Teklifler (quotes) ve teklif satırları
+        await sql`
+            CREATE TABLE IF NOT EXISTS quotes (
+                id TEXT PRIMARY KEY,
+                quote_no TEXT NOT NULL,
+                customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
+                customer_name TEXT NOT NULL DEFAULT '',
+                customer_code TEXT,
+                date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                valid_until TIMESTAMP WITH TIME ZONE,
+                note TEXT,
+                status TEXT NOT NULL DEFAULT 'HAZIRLANDI',
+                subtotal DECIMAL NOT NULL DEFAULT 0,
+                vat_total DECIMAL NOT NULL DEFAULT 0,
+                grand_total DECIMAL NOT NULL DEFAULT 0,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        `;
+        await sql`CREATE UNIQUE INDEX IF NOT EXISTS quotes_quote_no_key ON quotes(quote_no);`;
+        await sql`CREATE INDEX IF NOT EXISTS quotes_date_idx ON quotes(date DESC);`;
+        await sql`CREATE INDEX IF NOT EXISTS quotes_customer_id_idx ON quotes(customer_id);`;
+        await sql`
+            CREATE TABLE IF NOT EXISTS quote_items (
+                id TEXT PRIMARY KEY,
+                quote_id TEXT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+                item_id TEXT REFERENCES items(id) ON DELETE SET NULL,
+                name TEXT NOT NULL,
+                stock_code TEXT,
+                barcode TEXT,
+                brand TEXT,
+                buy_price DECIMAL NOT NULL DEFAULT 0,
+                unit_price DECIMAL NOT NULL DEFAULT 0,
+                quantity INTEGER NOT NULL DEFAULT 1,
+                vat_rate DECIMAL NOT NULL DEFAULT 20,
+                line_subtotal DECIMAL NOT NULL DEFAULT 0,
+                line_vat DECIMAL NOT NULL DEFAULT 0,
+                line_total DECIMAL NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0
+            );
+        `;
+        await sql`CREATE INDEX IF NOT EXISTS quote_items_quote_id_idx ON quote_items(quote_id);`;
+
         console.log('Database tables created successfully');
         return { success: true };
     } catch (error) {
