@@ -5,6 +5,7 @@ import { sql } from './db';
 import { hashPassword, verifyPassword } from './password';
 import {
     ALL_MENU_KEYS,
+    LATER_ADDED_MENU_KEYS,
     CompanySettings,
     Customer,
     type MemberPublic,
@@ -1470,9 +1471,6 @@ export async function addCustomerPayment(payload: {
         return { success: false, error };
     }
 }
-
-/** Sonradan eklenen menüler: eski tam yetkili hesaplara otomatik açılır */
-const LATER_ADDED_MENU_KEYS: MenuRouteKey[] = ['teklif'];
 
 function parseMenuRoutes(raw: unknown): MenuRouteKey[] {
     if (raw == null) return [];

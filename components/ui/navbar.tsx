@@ -6,7 +6,7 @@ import { useStockStore } from '@/lib/store';
 import { cn } from '@/lib/utils';
 import { LayoutDashboard, LogIn, LogOut, Search, Package, History, BarChart3, ShoppingCart, Users, RotateCcw, Settings, FileText } from 'lucide-react';
 import type { MenuRouteKey } from '@/types';
-import { pathnameMatchesRoute } from '@/lib/route-access';
+import { effectiveMenuRoutes, pathnameMatchesRoute } from '@/lib/route-access';
 
 const iconByKey: Record<MenuRouteKey, typeof LayoutDashboard> = {
     ozet: LayoutDashboard,
@@ -41,9 +41,9 @@ const routes: { href: string; label: string; key: MenuRouteKey }[] = [
 export default function Navbar() {
     const pathname = usePathname();
     const user = useStockStore((state) => state.user);
-    const allowed = user?.menuRoutes?.length ? new Set(user.menuRoutes) : null;
+    const allowed = new Set(effectiveMenuRoutes(user));
 
-    const visibleRoutes = allowed ? routes.filter((r) => allowed.has(r.key)) : routes;
+    const visibleRoutes = routes.filter((r) => allowed.has(r.key));
 
     return (
         <nav className="border-b border-white/10 bg-zinc-950 sticky top-0 z-50 backdrop-blur-xl">
