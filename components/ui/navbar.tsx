@@ -47,7 +47,7 @@ export default function Navbar() {
 
     return (
         <nav className="border-b border-white/10 bg-zinc-950 sticky top-0 z-50 backdrop-blur-xl">
-            <div className="container mx-auto px-4 h-16 flex items-center justify-between">
+            <div className="container mx-auto px-4 min-h-16 py-2 flex items-center justify-between gap-3">
                 <Link href="/" className="flex items-center gap-2 font-bold text-xl text-white tracking-tighter hover:opacity-80 transition-opacity">
                     <div className="bg-primary p-1.5 rounded-lg text-white">
                         <Package size={20} />
@@ -57,7 +57,7 @@ export default function Navbar() {
                         {user?.companyName === 'Demo Company' ? 'SPEEDSPOR' : (user?.companyName || 'SPEEDSPOR')}
                     </span>
                 </Link>
-                <div className="flex items-center gap-1 md:gap-2 flex-wrap justify-end">
+                <div className="flex items-center gap-1 md:gap-2 flex-wrap justify-end gap-y-1">
                     {visibleRoutes.map((route) => {
                         const Icon = iconByKey[route.key];
                         const isActive = pathnameMatchesRoute(pathname, route.href);
