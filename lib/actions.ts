@@ -1471,10 +1471,17 @@ export async function addCustomerPayment(payload: {
     }
 }
 
+/** Sonradan eklenen menüler: eski tam yetkili hesaplara otomatik açılır */
+const LATER_ADDED_MENU_KEYS: MenuRouteKey[] = ['teklif'];
+
 function parseMenuRoutes(raw: unknown): MenuRouteKey[] {
     if (raw == null) return [];
     if (Array.isArray(raw)) {
-        return raw.filter((x): x is MenuRouteKey => typeof x === 'string' && ALL_MENU_KEYS.includes(x as MenuRouteKey));
+        const parsed = raw.filter((x): x is MenuRouteKey => typeof x === 'string' && ALL_MENU_KEYS.includes(x as MenuRouteKey));
+        // Üye, yeni menüler eklenmeden önceki tüm menülere sahipse (tam yetki) yeni menüleri de görsün
+        const legacyAll = ALL_MENU_KEYS.filter((k) => !LATER_ADDED_MENU_KEYS.includes(k));
+        if (legacyAll.every((k) => parsed.includes(k))) return [...ALL_MENU_KEYS];
+        return parsed;
     }
     if (typeof raw === 'string') {
         try {
@@ -1697,7 +1704,7 @@ export async function createMember(payload: {
         const username = (payload.username || '').trim();
         const password = payload.password || '';
         let salesPerakende = Boolean(payload.salesPerakende);
-        let salesToptan = Boolean(payload.salesToptan);
+        const salesToptan = Boolean(payload.salesToptan);
         if (!salesPerakende && !salesToptan) {
             salesPerakende = true;
         }
