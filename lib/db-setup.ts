@@ -13,6 +13,8 @@ export async function setupDatabase() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `;
+        await sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS address TEXT;`;
+        await sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS phone TEXT;`;
         await sql`CREATE UNIQUE INDEX IF NOT EXISTS customers_customer_code_key ON customers(customer_code) WHERE customer_code IS NOT NULL;`;
 
         // Customer payments (tahsilat) table
@@ -126,6 +128,8 @@ export async function setupDatabase() {
                 customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
                 customer_name TEXT NOT NULL DEFAULT '',
                 customer_code TEXT,
+                customer_address TEXT,
+                customer_phone TEXT,
                 date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 valid_until TIMESTAMP WITH TIME ZONE,
                 note TEXT,
@@ -169,8 +173,6 @@ export async function setupDatabase() {
                 validity_days INTEGER NOT NULL DEFAULT 15,
                 default_note TEXT NOT NULL DEFAULT '',
                 terms TEXT NOT NULL DEFAULT '',
-                preparer_label TEXT NOT NULL DEFAULT '',
-                approval_label TEXT NOT NULL DEFAULT '',
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
             );
         `;

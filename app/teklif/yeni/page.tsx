@@ -88,6 +88,8 @@ export default function YeniTeklifPage() {
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
   const [newCustomerCode, setNewCustomerCode] = useState('');
   const [newCustomerName, setNewCustomerName] = useState('');
+  const [newCustomerAddress, setNewCustomerAddress] = useState('');
+  const [newCustomerPhone, setNewCustomerPhone] = useState('');
   const [newCustomerSaving, setNewCustomerSaving] = useState(false);
 
   // Tarih
@@ -260,6 +262,8 @@ export default function YeniTeklifPage() {
         customerId: selectedCustomer.id,
         customerName: selectedCustomer.name,
         customerCode: selectedCustomer.customerCode || null,
+        customerAddress: selectedCustomer.address || null,
+        customerPhone: selectedCustomer.phone || null,
         date: new Date(`${date}T12:00:00`).toISOString(),
         validUntil: validUntil ? new Date(`${validUntil}T12:00:00`).toISOString() : null,
         note: note.trim() || null,
@@ -297,7 +301,12 @@ export default function YeniTeklifPage() {
     setNewCustomerSaving(true);
     const toastId = toast.loading('Cari ekleniyor...');
     try {
-      const res = await dbActions.addCustomer({ customerCode: newCustomerCode.trim(), name });
+      const res = await dbActions.addCustomer({
+        customerCode: newCustomerCode.trim(),
+        name,
+        address: newCustomerAddress.trim(),
+        phone: newCustomerPhone.trim(),
+      });
       if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
       const rows = await dbActions.getCustomers();
       setCustomers(rows || []);
@@ -307,6 +316,8 @@ export default function YeniTeklifPage() {
       setAddCustomerOpen(false);
       setNewCustomerCode('');
       setNewCustomerName('');
+      setNewCustomerAddress('');
+      setNewCustomerPhone('');
     } catch {
       toast.error('Cari eklenemedi', { id: toastId });
     } finally {
@@ -851,6 +862,14 @@ export default function YeniTeklifPage() {
                   }
                 }}
               />
+            </div>
+            <div className="space-y-1.5">
+              <label className={labelCls}>Adres</label>
+              <Input value={newCustomerAddress} onChange={(e) => setNewCustomerAddress(e.target.value)} placeholder="Teklif formunda görünür" />
+            </div>
+            <div className="space-y-1.5">
+              <label className={labelCls}>Telefon</label>
+              <Input value={newCustomerPhone} onChange={(e) => setNewCustomerPhone(e.target.value)} placeholder="Örn: 0532 000 00 00" />
             </div>
           </div>
           <DialogFooter>

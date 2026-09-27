@@ -630,6 +630,8 @@ async function ensureCustomerPaymentsSchema() {
 
 async function ensureCustomersSchema() {
     await sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance DECIMAL NOT NULL DEFAULT 0;`;
+    await sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS address TEXT;`;
+    await sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS phone TEXT;`;
     await sql`ALTER TABLE customers ADD COLUMN IF NOT EXISTS opening_balance_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT '2000-01-01T00:00:00.000Z';`;
 }
 
@@ -866,7 +868,7 @@ export async function removeTransactions(transactionIds: string[]) {
     }
 }
 
-export async function updateCustomer(customerId: string, payload: { customerCode?: string; name?: string; openingBalance?: number }) {
+export async function updateCustomer(customerId: string, payload: { customerCode?: string; name?: string; openingBalance?: number; address?: string; phone?: string }) {
     try {
         await ensureCustomersSchema();
         const id = (customerId || '').trim();
@@ -883,11 +885,15 @@ export async function updateCustomer(customerId: string, payload: { customerCode
             return { success: false, error: 'openingBalance must be numeric' };
         }
         const shouldResetOpeningBalanceDate = openingBalance !== null;
+        const address = payload.address === undefined ? null : (payload.address || '').trim();
+        const phone = payload.phone === undefined ? null : (payload.phone || '').trim();
 
         await sql`
             UPDATE customers
             SET customer_code = ${code},
                 name = ${name},
+                address = COALESCE(${address}, address),
+                phone = COALESCE(${phone}, phone),
                 opening_balance = COALESCE(${openingBalance}, opening_balance),
                 opening_balance_date = CASE
                     WHEN ${shouldResetOpeningBalanceDate} THEN '2000-01-01T00:00:00.000Z'::timestamptz
@@ -1146,6 +1152,8 @@ export async function getCustomers() {
                 c.id,
                 c.customer_code as "customerCode",
                 c.name,
+                c.address,
+                c.phone,
                 c.created_at as "createdAt",
                 COALESCE(c.opening_balance, 0) as "openingBalance",
                 c.opening_balance_date as "openingBalanceDate",
@@ -1313,7 +1321,7 @@ export async function upsertCompanySettings(payload: CompanySettings) {
     }
 }
 
-export async function addCustomer(payload: { customerCode?: string; name: string; openingBalance?: number; openingBalanceDate?: string }) {
+export async function addCustomer(payload: { customerCode?: string; name: string; openingBalance?: number; openingBalanceDate?: string; address?: string; phone?: string }) {
     try {
         await ensureCustomersSchema();
         const name = (payload.name || '').trim();
@@ -1338,10 +1346,12 @@ export async function addCustomer(payload: { customerCode?: string; name: string
                 ? parsedOpeningDate.toISOString()
                 : OPENING_BALANCE_DEFAULT_DATE;
 
+        const address = (payload.address || '').trim() || null;
+        const phone = (payload.phone || '').trim() || null;
         const id = crypto.randomUUID();
         await sql`
-            INSERT INTO customers (id, customer_code, name, opening_balance, opening_balance_date)
-            VALUES (${id}, ${code}, ${name}, ${openingBalance}, ${openingBalanceDate});
+            INSERT INTO customers (id, customer_code, name, opening_balance, opening_balance_date, address, phone)
+            VALUES (${id}, ${code}, ${name}, ${openingBalance}, ${openingBalanceDate}, ${address}, ${phone});
         `;
         revalidatePath('/cari');
         return { success: true, id };

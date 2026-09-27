@@ -5,6 +5,8 @@ export interface Customer {
     id: string;
     customerCode?: string;
     name: string;
+    address?: string;
+    phone?: string;
     createdAt?: string;
     openingBalance?: number;   // + alacak açılışı, - borç açılışı
     openingBalanceDate?: string;
@@ -129,6 +131,8 @@ export interface Quote {
     customerId?: string | null;
     customerName: string;
     customerCode?: string | null;
+    customerAddress?: string | null;
+    customerPhone?: string | null;
     date: string;          // ISO
     validUntil?: string | null;
     note?: string | null;
@@ -154,9 +158,6 @@ export interface QuoteSettings {
     defaultNote: string;
     /** PDF "Açıklama / Koşullar" bölümündeki maddeler (her satır bir madde). {gecerlilik} yerine geçerlilik tarihi yazılır. */
     terms: string;
-    /** Kaşe/imza kutularının başlıkları */
-    preparerLabel: string;
-    approvalLabel: string;
     updatedAt?: string;
 }
 
@@ -166,8 +167,6 @@ export const DEFAULT_QUOTE_SETTINGS: QuoteSettings = {
     validityDays: 15,
     defaultNote: '',
     terms: 'Fiyatlar Türk Lirası (₺) cinsindendir; KDV tutarları ayrıca gösterilmiştir.\nBu teklif {gecerlilik} tarihine kadar geçerlidir.',
-    preparerLabel: 'TEKLİFİ HAZIRLAYAN',
-    approvalLabel: 'MÜŞTERİ ONAYI',
 };
 
 /** Navbar / yetki anahtarları (URL segment ile eşleşir) */

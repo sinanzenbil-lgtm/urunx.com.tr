@@ -12,6 +12,8 @@ import * as dbActions from '@/lib/actions';
 export default function CariYeniPage() {
   const [customerCode, setCustomerCode] = useState('');
   const [name, setName] = useState('');
+  const [address, setAddress] = useState('');
+  const [phone, setPhone] = useState('');
   const [openingBalanceType, setOpeningBalanceType] = useState<'ALACAK' | 'BORC'>('ALACAK');
   const [openingBalanceAmount, setOpeningBalanceAmount] = useState('');
   const [saving, setSaving] = useState(false);
@@ -35,11 +37,15 @@ export default function CariYeniPage() {
         customerCode: customerCode.trim(),
         name: name.trim(),
         openingBalance: opening,
+        address: address.trim(),
+        phone: phone.trim(),
       });
       if (!res.success) throw new Error(String(res.error || 'failed'));
       toast.success('Cari eklendi', { id: toastId });
       setCustomerCode('');
       setName('');
+      setAddress('');
+      setPhone('');
       setOpeningBalanceType('ALACAK');
       setOpeningBalanceAmount('');
     } catch (err) {
@@ -92,6 +98,14 @@ export default function CariYeniPage() {
                 placeholder="Örn: ABC İnşaat Ltd."
                 className="bg-zinc-900/50 border-zinc-800"
               />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-zinc-300">Adres</label>
+              <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Teklif formunda görünür" className="bg-zinc-900/50 border-zinc-800" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-zinc-300">Telefon</label>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Örn: 0532 000 00 00" className="bg-zinc-900/50 border-zinc-800" />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-zinc-300">Açılış Bakiyesi</label>

@@ -386,7 +386,7 @@ export default function TeklifListPage() {
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 sm:col-span-1">
                   <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Geçerlilik (gün)</label>
                   <Input
                     type="number"
@@ -396,14 +396,6 @@ export default function TeklifListPage() {
                     onChange={(e) => setQs({ ...qs, validityDays: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
                   />
                   <div className="text-[10px] text-zinc-600">0 = geçerlilik tarihi önerilmez</div>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Hazırlayan Kutusu</label>
-                  <Input value={qs.preparerLabel} onChange={(e) => setQs({ ...qs, preparerLabel: e.target.value })} placeholder="TEKLİFİ HAZIRLAYAN" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Onay Kutusu</label>
-                  <Input value={qs.approvalLabel} onChange={(e) => setQs({ ...qs, approvalLabel: e.target.value })} placeholder="MÜŞTERİ ONAYI" />
                 </div>
               </div>
               <div className="space-y-1.5">

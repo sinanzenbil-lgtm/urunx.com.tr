@@ -25,6 +25,8 @@ export default function CariListPage() {
   const [editing, setEditing] = useState<Customer | null>(null);
   const [editCode, setEditCode] = useState('');
   const [editName, setEditName] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editPhone, setEditPhone] = useState('');
   const [editOpeningBalanceType, setEditOpeningBalanceType] = useState<'ALACAK' | 'BORC'>('ALACAK');
   const [editOpeningBalanceAmount, setEditOpeningBalanceAmount] = useState('');
   const [saving, setSaving] = useState(false);
@@ -46,6 +48,8 @@ export default function CariListPage() {
     setEditing(c);
     setEditCode(c.customerCode || '');
     setEditName(c.name || '');
+    setEditAddress(c.address || '');
+    setEditPhone(c.phone || '');
     const openingBalance = Number(c.openingBalance) || 0;
     setEditOpeningBalanceType(openingBalance < 0 ? 'BORC' : 'ALACAK');
     setEditOpeningBalanceAmount(String(Math.abs(openingBalance)));
@@ -72,6 +76,8 @@ export default function CariListPage() {
         customerCode: editCode.trim(),
         name,
         openingBalance,
+        address: editAddress.trim(),
+        phone: editPhone.trim(),
       });
       if (!res.success) throw new Error(typeof res.error === 'string' ? res.error : 'failed');
       const rows = await dbActions.getCustomers();
@@ -320,6 +326,14 @@ export default function CariListPage() {
             <div className="space-y-2">
               <label className="text-sm font-medium text-zinc-300">Cari İsmi</label>
               <Input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Örn: ABC Ltd." />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-zinc-300">Adres</label>
+              <Input value={editAddress} onChange={(e) => setEditAddress(e.target.value)} placeholder="Teklif formunda görünür" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-zinc-300">Telefon</label>
+              <Input value={editPhone} onChange={(e) => setEditPhone(e.target.value)} placeholder="Örn: 0532 000 00 00" />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-zinc-300">Açılış Bakiyesi</label>

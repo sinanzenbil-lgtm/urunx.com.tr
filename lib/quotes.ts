@@ -39,6 +39,8 @@ async function ensureQuotesSchema() {
             customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
             customer_name TEXT NOT NULL DEFAULT '',
             customer_code TEXT,
+            customer_address TEXT,
+            customer_phone TEXT,
             date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
             valid_until TIMESTAMP WITH TIME ZONE,
             note TEXT,
@@ -50,6 +52,8 @@ async function ensureQuotesSchema() {
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
     `;
+    await sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS customer_address TEXT;`;
+    await sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS customer_phone TEXT;`;
     await sql`CREATE UNIQUE INDEX IF NOT EXISTS quotes_quote_no_key ON quotes(quote_no);`;
     await sql`CREATE INDEX IF NOT EXISTS quotes_date_idx ON quotes(date DESC);`;
     await sql`CREATE INDEX IF NOT EXISTS quotes_customer_id_idx ON quotes(customer_id);`;
@@ -81,6 +85,8 @@ type QuoteRow = {
     customerId: string | null;
     customerName: string | null;
     customerCode: string | null;
+    customerAddress: string | null;
+    customerPhone: string | null;
     date: unknown;
     validUntil: unknown;
     note: string | null;
@@ -120,6 +126,8 @@ function mapQuoteRow(row: QuoteRow): Quote {
         customerId: row.customerId,
         customerName: row.customerName || '',
         customerCode: row.customerCode,
+        customerAddress: row.customerAddress,
+        customerPhone: row.customerPhone,
         date: toIso(row.date),
         validUntil: toIsoOrNull(row.validUntil),
         note: row.note,
@@ -161,6 +169,8 @@ const QUOTE_SELECT = sql`
         q.customer_id AS "customerId",
         q.customer_name AS "customerName",
         q.customer_code AS "customerCode",
+        q.customer_address AS "customerAddress",
+        q.customer_phone AS "customerPhone",
         q.date,
         q.valid_until AS "validUntil",
         q.note,
@@ -268,6 +278,8 @@ export type CreateQuoteInput = {
     customerId?: string | null;
     customerName: string;
     customerCode?: string | null;
+    customerAddress?: string | null;
+    customerPhone?: string | null;
     date: string; // ISO veya YYYY-MM-DD
     validUntil?: string | null;
     note?: string | null;
@@ -290,6 +302,8 @@ export async function createQuote(payload: CreateQuoteInput): Promise<{ success:
         const note = String(payload.note || '').trim() || null;
         const customerId = String(payload.customerId || '').trim() || null;
         const customerCode = String(payload.customerCode || '').trim() || null;
+        const customerAddress = String(payload.customerAddress || '').trim() || null;
+        const customerPhone = String(payload.customerPhone || '').trim() || null;
 
         const normalized = lines.map((l, index) => {
             const quantity = Math.max(1, Math.floor(Number(l.quantity) || 0));
@@ -336,10 +350,10 @@ export async function createQuote(payload: CreateQuoteInput): Promise<{ success:
             try {
                 await sql`
                     INSERT INTO quotes (
-                        id, quote_no, customer_id, customer_name, customer_code, date, valid_until, note, status,
+                        id, quote_no, customer_id, customer_name, customer_code, customer_address, customer_phone, date, valid_until, note, status,
                         subtotal, vat_total, grand_total, created_at, updated_at
                     ) VALUES (
-                        ${id}, ${quoteNo}, ${customerId}, ${customerName}, ${customerCode}, ${date.toISOString()}, ${validUntil}, ${note}, 'HAZIRLANDI',
+                        ${id}, ${quoteNo}, ${customerId}, ${customerName}, ${customerCode}, ${customerAddress}, ${customerPhone}, ${date.toISOString()}, ${validUntil}, ${note}, 'HAZIRLANDI',
                         ${subtotal}, ${vatTotal}, ${grandTotal}, ${now}, ${now}
                     )
                 `;
@@ -422,8 +436,6 @@ async function ensureQuoteSettingsSchema() {
             validity_days INTEGER NOT NULL DEFAULT 15,
             default_note TEXT NOT NULL DEFAULT '',
             terms TEXT NOT NULL DEFAULT '',
-            preparer_label TEXT NOT NULL DEFAULT '',
-            approval_label TEXT NOT NULL DEFAULT '',
             updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
         );
     `;
@@ -433,8 +445,7 @@ export async function getQuoteSettings(): Promise<{ success: boolean; settings: 
     try {
         await ensureQuoteSettingsSchema();
         const rows = await sql`
-            SELECT subtitle, title, validity_days AS "validityDays", default_note AS "defaultNote", terms,
-                   preparer_label AS "preparerLabel", approval_label AS "approvalLabel", updated_at AS "updatedAt"
+            SELECT subtitle, title, validity_days AS "validityDays", default_note AS "defaultNote", terms, updated_at AS "updatedAt"
             FROM quote_settings WHERE id = 'default' LIMIT 1
         `;
         const row = (rows as Partial<QuoteSettings>[])[0];
@@ -447,8 +458,6 @@ export async function getQuoteSettings(): Promise<{ success: boolean; settings: 
                 validityDays: Math.max(0, Number(row.validityDays) || 0),
                 defaultNote: String(row.defaultNote ?? ''),
                 terms: String(row.terms ?? ''),
-                preparerLabel: String(row.preparerLabel ?? ''),
-                approvalLabel: String(row.approvalLabel ?? ''),
                 updatedAt: toIsoOrNull(row.updatedAt) || undefined,
             },
         };
@@ -466,20 +475,16 @@ export async function upsertQuoteSettings(payload: QuoteSettings): Promise<{ suc
         const validityDays = Math.max(0, Math.floor(Number(payload.validityDays) || 0));
         const defaultNote = String(payload.defaultNote ?? '').trim();
         const terms = String(payload.terms ?? '').trim();
-        const preparerLabel = String(payload.preparerLabel ?? '').trim();
-        const approvalLabel = String(payload.approvalLabel ?? '').trim();
         const now = new Date().toISOString();
         await sql`
-            INSERT INTO quote_settings (id, subtitle, title, validity_days, default_note, terms, preparer_label, approval_label, updated_at)
-            VALUES ('default', ${subtitle}, ${title}, ${validityDays}, ${defaultNote}, ${terms}, ${preparerLabel}, ${approvalLabel}, ${now})
+            INSERT INTO quote_settings (id, subtitle, title, validity_days, default_note, terms, updated_at)
+            VALUES ('default', ${subtitle}, ${title}, ${validityDays}, ${defaultNote}, ${terms}, ${now})
             ON CONFLICT (id) DO UPDATE SET
                 subtitle = EXCLUDED.subtitle,
                 title = EXCLUDED.title,
                 validity_days = EXCLUDED.validity_days,
                 default_note = EXCLUDED.default_note,
                 terms = EXCLUDED.terms,
-                preparer_label = EXCLUDED.preparer_label,
-                approval_label = EXCLUDED.approval_label,
                 updated_at = EXCLUDED.updated_at;
         `;
         revalidatePath('/teklif');
