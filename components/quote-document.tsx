@@ -18,8 +18,7 @@ const STYLES = `
 .qd-head{display:grid;grid-template-columns:1.1fr 1fr 1.1fr;gap:20px;align-items:start;padding-top:22px}
 .qd-logo{height:56px;display:flex;align-items:center}
 .qd-logo img{max-height:56px;max-width:200px;object-fit:contain;object-position:left}
-.qd-company{margin-top:8px;font-size:12.5px;font-weight:700;line-height:1.25}
-.qd-company-sub{font-size:10px;color:#52525b;margin-top:2px}
+.qd-company-info{margin-top:8px;font-size:9.5px;color:#52525b;line-height:1.5;max-width:230px}
 .qd-title-wrap{text-align:center;padding-top:6px}
 .qd-eyebrow{font-size:9px;letter-spacing:.32em;text-transform:uppercase;color:#71717a}
 .qd-title{font-size:26px;font-weight:800;letter-spacing:-.01em;line-height:1.1;margin-top:4px}
@@ -51,8 +50,6 @@ const STYLES = `
 .qd-grand span:first-child{font-size:9px;letter-spacing:.14em;text-transform:uppercase;font-weight:700}
 .qd-grand span:last-child{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
 .qd-grand-sub{text-align:right;font-size:8.5px;color:#71717a;margin-top:2px}
-.qd-footer{margin-top:auto;padding-top:14px;border-top:1px solid #d4d4d8;font-size:9.5px;color:#52525b;display:flex;justify-content:space-between;gap:16px}
-.qd-footer b{color:#18181b}
 @media print{
   .qd{min-height:273mm}
 }
@@ -76,7 +73,6 @@ export default function QuoteDocument({
     .filter(Boolean)
     .filter((line) => validityText || !line.includes('{gecerlilik}'))
     .map((line) => line.replace(/\{gecerlilik\}/g, validityText));
-  const contact = [settings.phone, settings.email].filter(Boolean).join(' · ');
   const items = quote.items || [];
 
   return (
@@ -99,8 +95,11 @@ export default function QuoteDocument({
               </div>
             )}
           </div>
-          <p className="qd-company">{companyTitle}</p>
-          {settings.companyName && settings.tradeName ? <p className="qd-company-sub">{settings.companyName}</p> : null}
+          <div className="qd-company-info">
+            {settings.address ? <div>{settings.address}</div> : null}
+            {settings.phone ? <div>{settings.phone}</div> : null}
+            {settings.email ? <div>{settings.email}</div> : null}
+          </div>
         </div>
 
         <div className="qd-title-wrap">
@@ -140,9 +139,10 @@ export default function QuoteDocument({
             <th>Ürün</th>
             <th className="qd-num">Birim Fiyat</th>
             <th className="qd-num">Adet</th>
+            <th className="qd-num">Toplam Tutar</th>
             <th className="qd-num">KDV %</th>
             <th className="qd-num">KDV Tutarı</th>
-            <th className="qd-num">Toplam</th>
+            <th className="qd-num">KDV Dahil</th>
           </tr>
         </thead>
         <tbody>
@@ -169,6 +169,7 @@ export default function QuoteDocument({
               </td>
               <td className="qd-num">{currency(line.unitPrice)}</td>
               <td className="qd-num">{line.quantity}</td>
+              <td className="qd-num">{currency(line.lineSubtotal)}</td>
               <td className="qd-num">{formatPercent(line.vatRate)}</td>
               <td className="qd-num">{currency(line.lineVat)}</td>
               <td className="qd-num" style={{ fontWeight: 700 }}>
@@ -178,7 +179,7 @@ export default function QuoteDocument({
           ))}
           {items.length === 0 ? (
             <tr>
-              <td colSpan={8} style={{ textAlign: 'center', color: '#71717a', padding: 24 }}>
+              <td colSpan={9} style={{ textAlign: 'center', color: '#71717a', padding: 24 }}>
                 Bu teklifte ürün satırı yok.
               </td>
             </tr>
@@ -216,14 +217,6 @@ export default function QuoteDocument({
         </div>
       </div>
 
-      {/* Alt bilgi: satıcı iletişim */}
-      <div className="quote-footer qd-footer">
-        <div>
-          <b>{settings.companyName || companyTitle}</b>
-          {settings.address ? <div>{settings.address}</div> : null}
-        </div>
-        {contact ? <div style={{ textAlign: 'right' }}>{contact}</div> : null}
-      </div>
     </div>
   );
 }
