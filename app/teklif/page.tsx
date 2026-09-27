@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { FileText, PlusCircle, Search, Trash2, Eye, FileDown, Loader2 } from 'lucide-react';
-import { Quote, QuoteStatus, QUOTE_STATUS_OPTIONS } from '@/types';
+import { FileText, PlusCircle, Search, Trash2, Eye, FileDown, Loader2, Settings } from 'lucide-react';
+import { DEFAULT_QUOTE_SETTINGS, Quote, QuoteSettings, QuoteStatus, QUOTE_STATUS_OPTIONS } from '@/types';
 import * as quoteActions from '@/lib/quotes';
 import { cn } from '@/lib/utils';
 
@@ -31,6 +31,31 @@ export default function TeklifListPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState<Quote | null>(null);
   const [busy, setBusy] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [qs, setQs] = useState<QuoteSettings>(DEFAULT_QUOTE_SETTINGS);
+
+  const openSettings = async () => {
+    setSettingsOpen(true);
+    setSettingsLoading(true);
+    const res = await quoteActions.getQuoteSettings();
+    setQs(res.settings);
+    setSettingsLoading(false);
+  };
+
+  const saveSettings = async () => {
+    setSettingsSaving(true);
+    const toastId = toast.loading('Ayarlar kaydediliyor...');
+    const res = await quoteActions.upsertQuoteSettings(qs);
+    setSettingsSaving(false);
+    if (!res.success) {
+      toast.error('Ayarlar kaydedilemedi', { id: toastId });
+      return;
+    }
+    toast.success('Teklif ayarları kaydedildi', { id: toastId });
+    setSettingsOpen(false);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -110,12 +135,18 @@ export default function TeklifListPage() {
           </h1>
           <p className="text-zinc-400 text-sm mt-1">Hazırlanan teklifleri görüntüleyin, PDF olarak indirin ve durumlarını takip edin.</p>
         </div>
-        <Link href="/teklif/yeni">
-          <Button className="bg-primary hover:bg-primary/90 text-white gap-2 h-11 px-5">
-            <PlusCircle className="w-5 h-5" />
-            Yeni Teklif Oluştur
+        <div className="flex items-center gap-2">
+          <Button variant="outline" className="border-zinc-700 gap-2 h-11" onClick={openSettings}>
+            <Settings className="w-4 h-4" />
+            Ayarlar
           </Button>
-        </Link>
+          <Link href="/teklif/yeni">
+            <Button className="bg-primary hover:bg-primary/90 text-white gap-2 h-11 px-5">
+              <PlusCircle className="w-5 h-5" />
+              Yeni Teklif Oluştur
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -322,6 +353,90 @@ export default function TeklifListPage() {
             </Button>
             <Button className="bg-rose-600 hover:bg-rose-700 text-white" onClick={confirmDelete} disabled={busy}>
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Sil'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings className="w-5 h-5 text-primary" />
+              Teklif Formu Ayarları
+            </DialogTitle>
+            <DialogDescription>
+              Burada tanımlanan başlık, açıklama maddeleri ve varsayılanlar teklif PDF&apos;inde ve yeni teklif formunda kullanılır.
+            </DialogDescription>
+          </DialogHeader>
+          {settingsLoading ? (
+            <div className="py-8 text-center text-sm text-zinc-500">
+              <Loader2 className="w-4 h-4 animate-spin inline-block mr-2" />
+              Ayarlar yükleniyor...
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Üst Başlık</label>
+                  <Input value={qs.subtitle} onChange={(e) => setQs({ ...qs, subtitle: e.target.value })} placeholder="FİYAT TEKLİFİ" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Ana Başlık</label>
+                  <Input value={qs.title} onChange={(e) => setQs({ ...qs, title: e.target.value })} placeholder="TEKLİF FORMU" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Geçerlilik (gün)</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step="1"
+                    value={qs.validityDays}
+                    onChange={(e) => setQs({ ...qs, validityDays: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
+                  />
+                  <div className="text-[10px] text-zinc-600">0 = geçerlilik tarihi önerilmez</div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Hazırlayan Kutusu</label>
+                  <Input value={qs.preparerLabel} onChange={(e) => setQs({ ...qs, preparerLabel: e.target.value })} placeholder="TEKLİFİ HAZIRLAYAN" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Onay Kutusu</label>
+                  <Input value={qs.approvalLabel} onChange={(e) => setQs({ ...qs, approvalLabel: e.target.value })} placeholder="MÜŞTERİ ONAYI" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Açıklama / Koşullar (her satır bir madde)</label>
+                <textarea
+                  value={qs.terms}
+                  onChange={(e) => setQs({ ...qs, terms: e.target.value })}
+                  rows={5}
+                  className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  placeholder={'Fiyatlar Türk Lirası (₺) cinsindendir; KDV tutarları ayrıca gösterilmiştir.\nBu teklif {gecerlilik} tarihine kadar geçerlidir.'}
+                />
+                <div className="text-[10px] text-zinc-600">
+                  <code className="text-zinc-400">{'{gecerlilik}'}</code> yazan yere teklifin geçerlilik tarihi gelir; geçerlilik tarihi yoksa o madde gösterilmez.
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Varsayılan Not (yeni teklifte önceden dolu gelir)</label>
+                <textarea
+                  value={qs.defaultNote}
+                  onChange={(e) => setQs({ ...qs, defaultNote: e.target.value })}
+                  rows={3}
+                  className="w-full rounded-md border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-white placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  placeholder="Teslimat 5 iş günü içinde yapılır. Ödeme: %50 sipariş onayında, %50 teslimatta."
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" className="border-zinc-700" onClick={() => setSettingsOpen(false)} disabled={settingsSaving}>
+              Vazgeç
+            </Button>
+            <Button className="bg-primary hover:bg-primary/90 text-white" onClick={saveSettings} disabled={settingsSaving || settingsLoading}>
+              {settingsSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Kaydet'}
             </Button>
           </DialogFooter>
         </DialogContent>

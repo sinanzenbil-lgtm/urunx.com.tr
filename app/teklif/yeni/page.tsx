@@ -112,8 +112,13 @@ export default function YeniTeklifPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const rows = await dbActions.getCustomers();
-      if (!cancelled) setCustomers(rows || []);
+      const [rows, qsRes] = await Promise.all([dbActions.getCustomers(), quoteActions.getQuoteSettings()]);
+      if (cancelled) return;
+      setCustomers(rows || []);
+      // Teklif ayarları: varsayılan geçerlilik süresi ve not
+      const qs = qsRes.settings;
+      setValidUntil(qs.validityDays > 0 ? plusDaysInput(qs.validityDays) : '');
+      setNote((prev) => prev || qs.defaultNote || '');
     })();
     return () => {
       cancelled = true;

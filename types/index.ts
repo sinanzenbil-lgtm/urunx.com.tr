@@ -142,6 +142,34 @@ export interface Quote {
     updatedAt?: string;
 }
 
+/** Teklif formu ayarları (liste sayfasındaki Ayarlar düğmesinden düzenlenir, PDF'te kullanılır) */
+export interface QuoteSettings {
+    /** Küçük üst başlık, örn. "FİYAT TEKLİFİ" */
+    subtitle: string;
+    /** Ana başlık, örn. "TEKLİF FORMU" */
+    title: string;
+    /** Yeni teklifte geçerlilik tarihi = teklif tarihi + gün */
+    validityDays: number;
+    /** Yeni teklif formunda not alanına önceden yazılan metin */
+    defaultNote: string;
+    /** PDF "Açıklama / Koşullar" bölümündeki maddeler (her satır bir madde). {gecerlilik} yerine geçerlilik tarihi yazılır. */
+    terms: string;
+    /** Kaşe/imza kutularının başlıkları */
+    preparerLabel: string;
+    approvalLabel: string;
+    updatedAt?: string;
+}
+
+export const DEFAULT_QUOTE_SETTINGS: QuoteSettings = {
+    subtitle: 'FİYAT TEKLİFİ',
+    title: 'TEKLİF FORMU',
+    validityDays: 15,
+    defaultNote: '',
+    terms: 'Fiyatlar Türk Lirası (₺) cinsindendir; KDV tutarları ayrıca gösterilmiştir.\nBu teklif {gecerlilik} tarihine kadar geçerlidir.',
+    preparerLabel: 'TEKLİFİ HAZIRLAYAN',
+    approvalLabel: 'MÜŞTERİ ONAYI',
+};
+
 /** Navbar / yetki anahtarları (URL segment ile eşleşir) */
 export type MenuRouteKey =
     | 'ozet'

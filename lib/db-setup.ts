@@ -161,6 +161,20 @@ export async function setupDatabase() {
         `;
         await sql`CREATE INDEX IF NOT EXISTS quote_items_quote_id_idx ON quote_items(quote_id);`;
 
+        await sql`
+            CREATE TABLE IF NOT EXISTS quote_settings (
+                id TEXT PRIMARY KEY,
+                subtitle TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL DEFAULT '',
+                validity_days INTEGER NOT NULL DEFAULT 15,
+                default_note TEXT NOT NULL DEFAULT '',
+                terms TEXT NOT NULL DEFAULT '',
+                preparer_label TEXT NOT NULL DEFAULT '',
+                approval_label TEXT NOT NULL DEFAULT '',
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        `;
+
         console.log('Database tables created successfully');
         return { success: true };
     } catch (error) {

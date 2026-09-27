@@ -1,5 +1,6 @@
 import { Package } from 'lucide-react';
-import type { CompanySettings, Quote } from '@/types';
+import type { CompanySettings, Quote, QuoteSettings } from '@/types';
+import { DEFAULT_QUOTE_SETTINGS } from '@/types';
 
 const currency = (value: number) =>
   new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(Number(value) || 0);
@@ -110,7 +111,24 @@ const HEAD_COLUMNS: { title: string; sub?: string; align: 'qv1-c' | 'qv1-r' | 'q
  * Çift üst cetvel, lacivert tek vurgu, çerçeveli bilgi blokları, tam cetvel çizgili tablo,
  * sağ altta kutulu toplamlar, çerçeveli kaşe/imza alanları.
  */
-export default function QuoteDocument({ quote, settings }: { quote: Quote; settings: CompanySettings }) {
+export default function QuoteDocument({
+  quote,
+  settings,
+  quoteSettings,
+}: {
+  quote: Quote;
+  settings: CompanySettings;
+  quoteSettings?: QuoteSettings;
+}) {
+  const qs = quoteSettings ?? DEFAULT_QUOTE_SETTINGS;
+  const validityText = quote.validUntil ? formatDate(quote.validUntil) : '';
+  const termLines = (qs.terms || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    // Geçerlilik tarihi yoksa {gecerlilik} içeren maddeyi atla
+    .filter((line) => validityText || !line.includes('{gecerlilik}'))
+    .map((line) => line.replace(/\{gecerlilik\}/g, validityText));
   const companyTitle = settings.tradeName || settings.companyName || 'Şirket Bilgisi Girilmedi';
   const showLegalName = Boolean(settings.companyName && settings.tradeName && settings.companyName !== settings.tradeName);
   const items = quote.items || [];
@@ -146,8 +164,8 @@ export default function QuoteDocument({ quote, settings }: { quote: Quote; setti
         </div>
 
         <div className="qv1-title">
-          <p className="qv1-eyebrow">FİYAT TEKLİFİ</p>
-          <p className="qv1-h1">TEKLİF FORMU</p>
+          {qs.subtitle ? <p className="qv1-eyebrow">{qs.subtitle}</p> : null}
+          <p className="qv1-h1">{qs.title || 'TEKLİF FORMU'}</p>
           <div className="qv1-dash" />
           <p className="qv1-no">No: {quote.quoteNo}</p>
         </div>
@@ -254,10 +272,13 @@ export default function QuoteDocument({ quote, settings }: { quote: Quote; setti
           <div className="qv1-cap">AÇIKLAMA / KOŞULLAR</div>
           <div className="qv1-terms">
             {quote.note ? <p>{quote.note}</p> : null}
-            <ul>
-              <li>Fiyatlar Türk Lirası (₺) cinsindendir; KDV tutarları ayrıca gösterilmiştir.</li>
-              {quote.validUntil ? <li>Bu teklif {formatDate(quote.validUntil)} tarihine kadar geçerlidir.</li> : null}
-            </ul>
+            {termLines.length > 0 ? (
+              <ul>
+                {termLines.map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         </div>
 
@@ -287,13 +308,13 @@ export default function QuoteDocument({ quote, settings }: { quote: Quote; setti
         </div>
         <div className="qv1-sign">
           <div className="qv1-sign-box">
-            <div className="qv1-sign-head">TEKLİFİ HAZIRLAYAN</div>
+            <div className="qv1-sign-head">{qs.preparerLabel || 'TEKLİFİ HAZIRLAYAN'}</div>
             <div className="qv1-sign-body">
               <span>Kaşe / İmza</span>
             </div>
           </div>
           <div className="qv1-sign-box">
-            <div className="qv1-sign-head">MÜŞTERİ ONAYI</div>
+            <div className="qv1-sign-head">{qs.approvalLabel || 'MÜŞTERİ ONAYI'}</div>
             <div className="qv1-sign-body">
               <span>Kaşe / İmza</span>
             </div>

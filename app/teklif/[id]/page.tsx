@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { ArrowLeft, FileDown, Loader2, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { CompanySettings, Quote, QUOTE_STATUS_OPTIONS } from '@/types';
+import { CompanySettings, DEFAULT_QUOTE_SETTINGS, Quote, QuoteSettings, QUOTE_STATUS_OPTIONS } from '@/types';
 import * as dbActions from '@/lib/actions';
 import * as quoteActions from '@/lib/quotes';
 import { cn } from '@/lib/utils';
@@ -35,15 +35,21 @@ export default function TeklifDetayPage() {
   const [loading, setLoading] = useState(true);
   const [quote, setQuote] = useState<Quote | null>(null);
   const [settings, setSettings] = useState<CompanySettings>(EMPTY_SETTINGS);
+  const [quoteSettings, setQuoteSettings] = useState<QuoteSettings>(DEFAULT_QUOTE_SETTINGS);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const [quoteRes, settingsRes] = await Promise.all([quoteActions.getQuoteById(quoteId), dbActions.getCompanySettings()]);
+      const [quoteRes, settingsRes, quoteSettingsRes] = await Promise.all([
+        quoteActions.getQuoteById(quoteId),
+        dbActions.getCompanySettings(),
+        quoteActions.getQuoteSettings(),
+      ]);
       if (cancelled) return;
       const company = (settingsRes as unknown as { settings?: CompanySettings }).settings || EMPTY_SETTINGS;
+      setQuoteSettings(quoteSettingsRes.settings);
       setSettings({
         companyName: company.companyName || '',
         tradeName: company.tradeName || '',
@@ -126,7 +132,7 @@ export default function TeklifDetayPage() {
           <div className="text-center py-10 text-zinc-600">{error || 'Teklif bulunamadı'}</div>
         </div>
       ) : (
-        <QuoteDocument quote={quote} settings={settings} />
+        <QuoteDocument quote={quote} settings={settings} quoteSettings={quoteSettings} />
       )}
     </div>
   );

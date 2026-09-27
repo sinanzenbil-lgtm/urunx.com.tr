@@ -3,8 +3,8 @@
 import { revalidatePath } from 'next/cache';
 import { sql } from './db';
 import { v4 as uuidv4 } from 'uuid';
-import type { Quote, QuoteItem, QuoteStatus } from '@/types';
-import { QUOTE_STATUS_OPTIONS } from '@/types';
+import type { Quote, QuoteItem, QuoteSettings, QuoteStatus } from '@/types';
+import { DEFAULT_QUOTE_SETTINGS, QUOTE_STATUS_OPTIONS } from '@/types';
 
 /** Server Action yanıtı JSON olmalı; Postgres Error nesnesi dönmek 500 üretebilir */
 function safeActionError(err: unknown): string {
@@ -407,6 +407,85 @@ export async function removeQuote(quoteId: string): Promise<{ success: boolean; 
         return { success: true };
     } catch (error) {
         console.error('Error removing quote:', error);
+        return { success: false, error: safeActionError(error) };
+    }
+}
+
+/* ---------------- Teklif formu ayarları ---------------- */
+
+async function ensureQuoteSettingsSchema() {
+    await sql`
+        CREATE TABLE IF NOT EXISTS quote_settings (
+            id TEXT PRIMARY KEY,
+            subtitle TEXT NOT NULL DEFAULT '',
+            title TEXT NOT NULL DEFAULT '',
+            validity_days INTEGER NOT NULL DEFAULT 15,
+            default_note TEXT NOT NULL DEFAULT '',
+            terms TEXT NOT NULL DEFAULT '',
+            preparer_label TEXT NOT NULL DEFAULT '',
+            approval_label TEXT NOT NULL DEFAULT '',
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+    `;
+}
+
+export async function getQuoteSettings(): Promise<{ success: boolean; settings: QuoteSettings; error?: string }> {
+    try {
+        await ensureQuoteSettingsSchema();
+        const rows = await sql`
+            SELECT subtitle, title, validity_days AS "validityDays", default_note AS "defaultNote", terms,
+                   preparer_label AS "preparerLabel", approval_label AS "approvalLabel", updated_at AS "updatedAt"
+            FROM quote_settings WHERE id = 'default' LIMIT 1
+        `;
+        const row = (rows as Partial<QuoteSettings>[])[0];
+        if (!row) return { success: true, settings: { ...DEFAULT_QUOTE_SETTINGS } };
+        return {
+            success: true,
+            settings: {
+                subtitle: String(row.subtitle ?? ''),
+                title: String(row.title ?? ''),
+                validityDays: Math.max(0, Number(row.validityDays) || 0),
+                defaultNote: String(row.defaultNote ?? ''),
+                terms: String(row.terms ?? ''),
+                preparerLabel: String(row.preparerLabel ?? ''),
+                approvalLabel: String(row.approvalLabel ?? ''),
+                updatedAt: toIsoOrNull(row.updatedAt) || undefined,
+            },
+        };
+    } catch (error) {
+        console.error('Error fetching quote settings:', error);
+        return { success: false, settings: { ...DEFAULT_QUOTE_SETTINGS }, error: safeActionError(error) };
+    }
+}
+
+export async function upsertQuoteSettings(payload: QuoteSettings): Promise<{ success: boolean; error?: string }> {
+    try {
+        await ensureQuoteSettingsSchema();
+        const subtitle = String(payload.subtitle ?? '').trim();
+        const title = String(payload.title ?? '').trim();
+        const validityDays = Math.max(0, Math.floor(Number(payload.validityDays) || 0));
+        const defaultNote = String(payload.defaultNote ?? '').trim();
+        const terms = String(payload.terms ?? '').trim();
+        const preparerLabel = String(payload.preparerLabel ?? '').trim();
+        const approvalLabel = String(payload.approvalLabel ?? '').trim();
+        const now = new Date().toISOString();
+        await sql`
+            INSERT INTO quote_settings (id, subtitle, title, validity_days, default_note, terms, preparer_label, approval_label, updated_at)
+            VALUES ('default', ${subtitle}, ${title}, ${validityDays}, ${defaultNote}, ${terms}, ${preparerLabel}, ${approvalLabel}, ${now})
+            ON CONFLICT (id) DO UPDATE SET
+                subtitle = EXCLUDED.subtitle,
+                title = EXCLUDED.title,
+                validity_days = EXCLUDED.validity_days,
+                default_note = EXCLUDED.default_note,
+                terms = EXCLUDED.terms,
+                preparer_label = EXCLUDED.preparer_label,
+                approval_label = EXCLUDED.approval_label,
+                updated_at = EXCLUDED.updated_at;
+        `;
+        revalidatePath('/teklif');
+        return { success: true };
+    } catch (error) {
+        console.error('Error saving quote settings:', error);
         return { success: false, error: safeActionError(error) };
     }
 }
