@@ -90,51 +90,6 @@ export default function TeklifDetayPage() {
 
   return (
     <div className="space-y-4">
-      <style jsx global>{`
-        @page {
-          size: A4;
-          margin: 10mm 10mm 12mm 10mm;
-        }
-        @media print {
-          nav,
-          .no-print {
-            display: none !important;
-          }
-          html,
-          body {
-            background: #fff !important;
-            color: #18181b !important;
-          }
-          main.container {
-            max-width: 100% !important;
-            padding: 0 !important;
-            margin: 0 !important;
-          }
-          .quote-sheet {
-            border: 0 !important;
-            box-shadow: none !important;
-            margin: 0 !important;
-            border-radius: 0 !important;
-            padding: 0 !important;
-            width: 100% !important;
-            max-width: none !important;
-          }
-          .quote-sheet * {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-          .quote-table thead {
-            display: table-header-group;
-          }
-          .quote-table tr,
-          .quote-totals,
-          .quote-footer {
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-        }
-      `}</style>
-
       <div className="no-print flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <Link href="/teklif">
           <Button variant="outline" className="border-zinc-700 gap-2">
@@ -159,18 +114,20 @@ export default function TeklifDetayPage() {
         </div>
       </div>
 
-      <div className="quote-sheet bg-white text-zinc-900 rounded-xl border border-zinc-800/20 shadow-xl p-8 md:p-10 max-w-[210mm] mx-auto">
-        {loading ? (
+      {loading ? (
+        <div className="quote-sheet bg-white text-zinc-900 rounded-xl border border-zinc-800/20 shadow-xl p-8 md:p-10 max-w-[210mm] mx-auto">
           <div className="flex items-center gap-2 text-sm text-zinc-500 py-10 justify-center">
             <Loader2 className="w-4 h-4 animate-spin" />
             Teklif hazırlanıyor...
           </div>
-        ) : error || !quote ? (
+        </div>
+      ) : error || !quote ? (
+        <div className="quote-sheet bg-white text-zinc-900 rounded-xl border border-zinc-800/20 shadow-xl p-8 md:p-10 max-w-[210mm] mx-auto">
           <div className="text-center py-10 text-zinc-600">{error || 'Teklif bulunamadı'}</div>
-        ) : (
-          <QuoteDocument quote={quote} settings={settings} />
-        )}
-      </div>
+        </div>
+      ) : (
+        <QuoteDocument quote={quote} settings={settings} />
+      )}
     </div>
   );
 }

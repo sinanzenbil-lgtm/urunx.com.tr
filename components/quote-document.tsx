@@ -16,7 +16,7 @@ export default function QuoteDocument({ quote, settings }: { quote: Quote; setti
   const companyTitle = settings.tradeName || settings.companyName || 'Şirket Bilgisi Girilmedi';
 
   return (
-    <>
+    <div className="quote-sheet bg-white text-zinc-900 rounded-xl border border-zinc-800/20 shadow-xl p-8 md:p-10 max-w-[210mm] mx-auto">
       {/* Üst bant */}
       <div className="h-1.5 w-full bg-zinc-900 rounded-full mb-6" />
 
@@ -182,6 +182,6 @@ export default function QuoteDocument({ quote, settings }: { quote: Quote; setti
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
