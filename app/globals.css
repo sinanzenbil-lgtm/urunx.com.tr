@@ -80,7 +80,8 @@
 
 @media print {
   nav,
-  .no-print {
+  .no-print,
+  [data-sonner-toaster] {
     display: none !important;
   }
 

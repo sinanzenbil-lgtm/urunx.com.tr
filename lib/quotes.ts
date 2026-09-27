@@ -391,6 +391,105 @@ export async function createQuote(payload: CreateQuoteInput): Promise<{ success:
     }
 }
 
+function normalizeLines(lines: CreateQuoteLineInput[]) {
+    return lines.map((l, index) => {
+        const quantity = Math.max(1, Math.floor(Number(l.quantity) || 0));
+        const unitPrice = round2(Math.max(0, Number(l.unitPrice) || 0));
+        const vatRate = Math.max(0, Number(l.vatRate) || 0);
+        const buyPrice = round2(Math.max(0, Number(l.buyPrice) || 0));
+        const lineSubtotal = round2(unitPrice * quantity);
+        const lineVat = round2((lineSubtotal * vatRate) / 100);
+        const lineTotal = round2(lineSubtotal + lineVat);
+        return {
+            id: uuidv4(),
+            itemId: String(l.itemId || '').trim() || null,
+            name: String(l.name || '').trim() || 'İsimsiz',
+            stockCode: String(l.stockCode || '').trim() || null,
+            barcode: String(l.barcode || '').trim() || null,
+            brand: String(l.brand || '').trim() || null,
+            buyPrice,
+            unitPrice,
+            quantity,
+            vatRate,
+            lineSubtotal,
+            lineVat,
+            lineTotal,
+            sortOrder: index,
+        };
+    });
+}
+
+async function insertQuoteLines(quoteId: string, normalized: ReturnType<typeof normalizeLines>) {
+    for (const l of normalized) {
+        await sql`
+            INSERT INTO quote_items (
+                id, quote_id, item_id, name, stock_code, barcode, brand,
+                buy_price, unit_price, quantity, vat_rate, line_subtotal, line_vat, line_total, sort_order
+            ) VALUES (
+                ${l.id}, ${quoteId}, ${l.itemId}, ${l.name}, ${l.stockCode}, ${l.barcode}, ${l.brand},
+                ${l.buyPrice}, ${l.unitPrice}, ${l.quantity}, ${l.vatRate}, ${l.lineSubtotal}, ${l.lineVat}, ${l.lineTotal}, ${l.sortOrder}
+            )
+        `;
+    }
+}
+
+export async function updateQuote(quoteId: string, payload: CreateQuoteInput): Promise<{ success: boolean; error?: string }> {
+    try {
+        const id = String(quoteId || '').trim();
+        if (!id) return { success: false, error: 'quoteId is required' };
+        await ensureQuotesSchema();
+
+        const customerName = String(payload.customerName || '').trim();
+        if (!customerName) return { success: false, error: 'Cari seçilmeli' };
+        const lines = Array.isArray(payload.lines) ? payload.lines : [];
+        if (lines.length === 0) return { success: false, error: 'En az bir ürün satırı ekleyin' };
+
+        const dateObj = new Date(payload.date || Date.now());
+        const date = Number.isNaN(dateObj.getTime()) ? new Date() : dateObj;
+        const validUntil = toIsoOrNull(payload.validUntil);
+        const note = String(payload.note || '').trim() || null;
+        const customerId = String(payload.customerId || '').trim() || null;
+        const customerCode = String(payload.customerCode || '').trim() || null;
+        const customerAddress = String(payload.customerAddress || '').trim() || null;
+        const customerPhone = String(payload.customerPhone || '').trim() || null;
+
+        const normalized = normalizeLines(lines);
+        if (normalized.some((l) => l.unitPrice <= 0)) return { success: false, error: 'Her satır için teklif fiyatı girilmeli' };
+        const subtotal = round2(normalized.reduce((acc, l) => acc + l.lineSubtotal, 0));
+        const vatTotal = round2(normalized.reduce((acc, l) => acc + l.lineVat, 0));
+        const grandTotal = round2(subtotal + vatTotal);
+
+        const existing = await sql`SELECT id FROM quotes WHERE id = ${id} LIMIT 1`;
+        if (!(existing as unknown[]).length) return { success: false, error: 'Teklif bulunamadı' };
+
+        await sql`
+            UPDATE quotes SET
+                customer_id = ${customerId},
+                customer_name = ${customerName},
+                customer_code = ${customerCode},
+                customer_address = ${customerAddress},
+                customer_phone = ${customerPhone},
+                date = ${date.toISOString()},
+                valid_until = ${validUntil},
+                note = ${note},
+                subtotal = ${subtotal},
+                vat_total = ${vatTotal},
+                grand_total = ${grandTotal},
+                updated_at = ${new Date().toISOString()}
+            WHERE id = ${id}
+        `;
+        await sql`DELETE FROM quote_items WHERE quote_id = ${id}`;
+        await insertQuoteLines(id, normalized);
+
+        revalidatePath('/teklif');
+        revalidatePath(`/teklif/${id}`);
+        return { success: true };
+    } catch (error) {
+        console.error('Error updating quote:', error);
+        return { success: false, error: safeActionError(error) };
+    }
+}
+
 export async function updateQuoteStatus(quoteId: string, status: QuoteStatus): Promise<{ success: boolean; error?: string }> {
     try {
         const id = String(quoteId || '').trim();

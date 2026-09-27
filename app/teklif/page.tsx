@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { FileText, PlusCircle, Search, Trash2, Eye, FileDown, Loader2, Settings } from 'lucide-react';
+import { FileText, PlusCircle, Search, Trash2, Eye, FileDown, Loader2, Settings, Pencil } from 'lucide-react';
 import { DEFAULT_QUOTE_SETTINGS, Quote, QuoteSettings, QuoteStatus, QUOTE_STATUS_OPTIONS } from '@/types';
 import * as quoteActions from '@/lib/quotes';
 import { cn } from '@/lib/utils';
@@ -298,6 +298,11 @@ export default function TeklifListPage() {
                           <Link href={`/teklif/${quote.id}`} title="Görüntüle">
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-zinc-400 hover:text-white">
                               <Eye className="w-4 h-4" />
+                            </Button>
+                          </Link>
+                          <Link href={`/teklif/yeni?id=${quote.id}`} title="Düzenle">
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-amber-400 hover:text-amber-300">
+                              <Pencil className="w-4 h-4" />
                             </Button>
                           </Link>
                           <Link href={`/teklif/${quote.id}?indir=1`} title="PDF İndir">

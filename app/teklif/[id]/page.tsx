@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
-import { ArrowLeft, FileDown, Loader2, Pencil } from 'lucide-react';
+import { ArrowLeft, FileDown, Loader2, Pencil, PlusCircle } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { CompanySettings, DEFAULT_QUOTE_SETTINGS, Quote, QuoteSettings, QUOTE_STATUS_OPTIONS } from '@/types';
 import * as dbActions from '@/lib/actions';
@@ -85,7 +86,10 @@ export default function TeklifDetayPage() {
   useEffect(() => {
     if (loading || !quote) return;
     if (searchParams.get('indir') !== '1') return;
-    const t = window.setTimeout(() => window.print(), 700);
+    const t = window.setTimeout(() => {
+      toast.dismiss();
+      window.print();
+    }, 900);
     return () => window.clearTimeout(t);
   }, [loading, quote, searchParams]);
 
@@ -107,13 +111,24 @@ export default function TeklifDetayPage() {
           {quote ? (
             <span className={cn('text-xs font-medium border rounded-md px-2.5 py-1.5', STATUS_BADGE[quote.status])}>{statusLabel}</span>
           ) : null}
+          {quote ? (
+            <Link href={`/teklif/yeni?id=${quote.id}`}>
+              <Button variant="outline" className="border-zinc-700 gap-2">
+                <Pencil className="w-4 h-4" />
+                Düzenle
+              </Button>
+            </Link>
+          ) : null}
           <Link href="/teklif/yeni">
             <Button variant="outline" className="border-zinc-700 gap-2">
-              <Pencil className="w-4 h-4" />
+              <PlusCircle className="w-4 h-4" />
               Yeni Teklif
             </Button>
           </Link>
-          <Button className="bg-sky-600 hover:bg-sky-700 text-white gap-2" onClick={() => window.print()} disabled={!quote}>
+          <Button className="bg-sky-600 hover:bg-sky-700 text-white gap-2" onClick={() => {
+              toast.dismiss();
+              window.print();
+            }} disabled={!quote}>
             <FileDown className="w-4 h-4" />
             PDF İndir
           </Button>

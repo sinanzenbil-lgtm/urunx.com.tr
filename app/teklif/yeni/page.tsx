@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useStockStore } from '@/lib/store';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -74,8 +74,13 @@ function lineMath(line: { unitPrice: string; quantity: string; vatRate: string }
   return { unitPrice, quantity, vatRate, subtotal, vat, total };
 }
 
-export default function YeniTeklifPage() {
+function YeniTeklifForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editId = (searchParams.get('id') || '').trim();
+  const isEdit = editId.length > 0;
+  const [editQuoteNo, setEditQuoteNo] = useState('');
+  const [editLoading, setEditLoading] = useState(isEdit);
   const items = useStockStore((s) => s.items);
   const dbSyncStatus = useStockStore((s) => s.dbSyncStatus);
 
@@ -119,13 +124,57 @@ export default function YeniTeklifPage() {
       setCustomers(rows || []);
       // Teklif ayarları: varsayılan geçerlilik süresi ve not
       const qs = qsRes.settings;
+      if (isEdit) {
+        const res = await quoteActions.getQuoteById(editId);
+        if (cancelled) return;
+        if (!res.success || !res.quote) {
+          toast.error('Düzenlenecek teklif bulunamadı');
+          setEditLoading(false);
+          return;
+        }
+        const q = res.quote;
+        setEditQuoteNo(q.quoteNo);
+        if (q.customerId) {
+          const c = (rows || []).find((x) => x.id === q.customerId);
+          if (c) {
+            setSelectedCustomerId(c.id);
+            setCustomerQuery(c.customerCode ? `${c.customerCode} — ${c.name}` : c.name);
+          }
+        }
+        setDate(q.date.slice(0, 10));
+        setValidUntil(q.validUntil ? q.validUntil.slice(0, 10) : '');
+        setNote(q.note || '');
+        setLines(
+          (q.items || []).map((it) => {
+            const stockItem: StockItem = {
+              id: it.itemId || `snapshot-${it.id}`,
+              barcode: it.barcode || '',
+              stockCode: it.stockCode || undefined,
+              name: it.name,
+              image: it.image || undefined,
+              brand: it.brand || undefined,
+              vatRate: it.vatRate,
+              buyPrice: it.buyPrice,
+              sellPrice: it.unitPrice,
+              quantity: 0,
+              transactions: [],
+              createdAt: '',
+              updatedAt: '',
+            };
+            return { id: uuidv4(), stockItem, unitPrice: String(it.unitPrice), quantity: String(it.quantity), vatRate: String(it.vatRate) };
+          })
+        );
+        setEditLoading(false);
+        return;
+      }
       setValidUntil(qs.validityDays > 0 ? plusDaysInput(qs.validityDays) : '');
       setNote((prev) => prev || qs.defaultNote || '');
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editId]);
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -256,9 +305,9 @@ export default function YeniTeklifPage() {
       return;
     }
     setSaving(true);
-    const toastId = toast.loading('Teklif oluşturuluyor...');
+    const toastId = toast.loading(isEdit ? 'Teklif güncelleniyor...' : 'Teklif oluşturuluyor...');
     try {
-      const res = await quoteActions.createQuote({
+      const payload = {
         customerId: selectedCustomer.id,
         customerName: selectedCustomer.name,
         customerCode: selectedCustomer.customerCode || null,
@@ -281,7 +330,15 @@ export default function YeniTeklifPage() {
             vatRate: m.vatRate,
           };
         }),
-      });
+      };
+      if (isEdit) {
+        const res = await quoteActions.updateQuote(editId, payload);
+        if (!res.success) throw new Error(res.error || 'Teklif güncellenemedi');
+        toast.success(`${editQuoteNo} numaralı teklif güncellendi`, { id: toastId });
+        router.push(`/teklif/${editId}`);
+        return;
+      }
+      const res = await quoteActions.createQuote(payload);
       if (!res.success || !res.quoteId) throw new Error(res.error || 'Teklif kaydedilemedi');
       toast.success(`${res.quoteNo} numaralı teklif oluşturuldu`, { id: toastId });
       router.push(`/teklif/${res.quoteId}?indir=1`);
@@ -333,9 +390,13 @@ export default function YeniTeklifPage() {
         <div>
           <h1 className="text-3xl font-bold text-white flex items-center gap-2">
             <FileText className="w-8 h-8 text-primary" />
-            Yeni Teklif
+            {isEdit ? `Teklifi Düzenle${editQuoteNo ? ` — ${editQuoteNo}` : ''}` : 'Yeni Teklif'}
           </h1>
-          <p className="text-zinc-400 text-sm mt-1">Cari ve tarihi seçin, ürünleri satır satır ekleyin, ardından teklifi oluşturun.</p>
+          <p className="text-zinc-400 text-sm mt-1">
+            {isEdit
+              ? 'Cari, tarih, ürün satırları ve notu değiştirip kaydedin. Teklif numarası ve durumu korunur.'
+              : 'Cari ve tarihi seçin, ürünleri satır satır ekleyin, ardından teklifi oluşturun.'}
+          </p>
         </div>
         <Link href="/teklif">
           <Button variant="outline" className="border-zinc-700 gap-2">
@@ -822,11 +883,11 @@ export default function YeniTeklifPage() {
 
               <Button
                 onClick={submitQuote}
-                disabled={!canSubmit || saving}
+                disabled={!canSubmit || saving || editLoading}
                 className="w-full h-12 bg-primary hover:bg-primary/90 text-white gap-2 text-base font-semibold"
               >
                 {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
-                Teklif Oluştur
+                {isEdit ? 'Değişiklikleri Kaydet' : 'Teklif Oluştur'}
               </Button>
               {!canSubmit && (
                 <div className="text-xs text-zinc-500 text-center">
@@ -883,5 +944,13 @@ export default function YeniTeklifPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function YeniTeklifPage() {
+  return (
+    <Suspense fallback={null}>
+      <YeniTeklifForm />
+    </Suspense>
   );
 }
