@@ -203,6 +203,9 @@ export const ALL_MENU_KEYS: MenuRouteKey[] = [
 /** Sonradan eklenen menüler: eski tam yetkili hesaplara otomatik açılır */
 export const LATER_ADDED_MENU_KEYS: MenuRouteKey[] = ['teklif'];
 
+/** Her üyede yetkiden bağımsız açık olan menüler */
+export const ALWAYS_ON_MENU_KEYS: MenuRouteKey[] = ['teklif'];
+
 export const MENU_ROUTE_OPTIONS: { key: MenuRouteKey; label: string }[] = [
     { key: 'ozet', label: 'Özet' },
     { key: 'giris', label: 'Stok Giriş' },

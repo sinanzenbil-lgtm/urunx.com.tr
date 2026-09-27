@@ -5,6 +5,7 @@ import { sql } from './db';
 import { hashPassword, verifyPassword } from './password';
 import {
     ALL_MENU_KEYS,
+    ALWAYS_ON_MENU_KEYS,
     LATER_ADDED_MENU_KEYS,
     CompanySettings,
     Customer,
@@ -1479,7 +1480,9 @@ function parseMenuRoutes(raw: unknown): MenuRouteKey[] {
         // Üye, yeni menüler eklenmeden önceki tüm menülere sahipse (tam yetki) yeni menüleri de görsün
         const legacyAll = ALL_MENU_KEYS.filter((k) => !LATER_ADDED_MENU_KEYS.includes(k));
         if (legacyAll.every((k) => parsed.includes(k))) return [...ALL_MENU_KEYS];
-        return parsed;
+        if (parsed.length === 0) return parsed;
+        const set = new Set<MenuRouteKey>([...parsed, ...ALWAYS_ON_MENU_KEYS]);
+        return ALL_MENU_KEYS.filter((k) => set.has(k));
     }
     if (typeof raw === 'string') {
         try {

@@ -1,5 +1,5 @@
 import type { MenuRouteKey, User } from '@/types';
-import { ALL_MENU_KEYS, LATER_ADDED_MENU_KEYS } from '@/types';
+import { ALL_MENU_KEYS, ALWAYS_ON_MENU_KEYS, LATER_ADDED_MENU_KEYS } from '@/types';
 
 /**
  * Kullanıcının etkin menü listesi. Boş liste = tüm menüler; yeni menüler eklenmeden
@@ -10,7 +10,9 @@ export function effectiveMenuRoutes(user: User | null): MenuRouteKey[] {
   if (!routes || routes.length === 0) return ALL_MENU_KEYS;
   const legacyAll = ALL_MENU_KEYS.filter((k) => !LATER_ADDED_MENU_KEYS.includes(k));
   if (legacyAll.every((k) => routes.includes(k))) return ALL_MENU_KEYS;
-  return routes;
+  // Her üyede açık menüler (ör. Teklif) listede yoksa eklenir; sıralama ALL_MENU_KEYS'e göre
+  const set = new Set<MenuRouteKey>([...routes, ...ALWAYS_ON_MENU_KEYS]);
+  return ALL_MENU_KEYS.filter((k) => set.has(k));
 }
 
 /** Path → menü yetki anahtarı (alt sayfalar üst menüyle aynı yetki) */
