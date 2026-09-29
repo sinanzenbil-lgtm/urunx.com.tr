@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useStockStore } from '@/lib/store';
+import { useItemsWithTransactions } from '@/lib/use-items-with-transactions';
 import * as dbActions from '@/lib/actions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -164,7 +165,7 @@ const buildStockCostRows = (items: ReturnType<typeof useStockStore.getState>['it
 };
 
 export default function StockCostReportPage() {
-    const items = useStockStore((state) => state.items);
+    const { items } = useItemsWithTransactions();
     const [monthlyRateInput, setMonthlyRateInput] = useState('0');
     const [settingsLoading, setSettingsLoading] = useState(true);
     const [lastCalculatedAt, setLastCalculatedAt] = useState<string | null>(null);

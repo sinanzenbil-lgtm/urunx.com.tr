@@ -245,6 +245,8 @@ export type MemberPublic = {
 
 export interface StockStore {
     items: StockItem[];
+    /** items[].transactions dolu mu? (hafif senkronizasyonda boş gelir) */
+    itemsHaveTransactions: boolean;
     user: User | null;
     isAuthenticated: boolean;
     dbSyncStatus: 'idle' | 'syncing' | 'synced' | 'error';
@@ -256,7 +258,7 @@ export interface StockStore {
     searchItems: (query: string) => StockItem[];
     login: (user: User) => void;
     logout: () => void;
-    setItems: (items: StockItem[]) => void;
+    setItems: (items: StockItem[], withTransactions?: boolean) => void;
     setDbSyncStatus: (status: StockStore['dbSyncStatus']) => void;
     removeTransactions: (ids: string[]) => void;
 }

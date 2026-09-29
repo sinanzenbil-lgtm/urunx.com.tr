@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useStockStore } from '@/lib/store';
+import { useItemsWithTransactions } from '@/lib/use-items-with-transactions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useMemo, useState } from 'react';
@@ -71,7 +71,7 @@ const formatCurrency = (value: number) =>
     }).format(Number(value) || 0);
 
 export default function ReportsPage() {
-    const items = useStockStore((state) => state.items);
+    const { items } = useItemsWithTransactions();
 
     const yearStart = `${new Date().getFullYear()}-01-01`;
     const today = new Date().toISOString().split('T')[0];

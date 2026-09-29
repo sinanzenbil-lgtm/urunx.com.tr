@@ -181,6 +181,43 @@ async function ensureTransactionIndexes(): Promise<void> {
     return txIndexesReady;
 }
 
+/** items tablosu — hareketler olmadan (genel senkronizasyon için hafif sorgu) */
+const ITEMS_SELECT_LIGHT = sql`
+    SELECT
+        i.id,
+        i.barcode,
+        i.stock_code as "stockCode",
+        i.name,
+        i.image,
+        i.description,
+        i.brand,
+        i.vat_rate as "vatRate",
+        i.buy_price as "buyPrice",
+        i.sell_price as "sellPrice",
+        i.quantity,
+        i.created_at as "createdAt",
+        i.updated_at as "updatedAt",
+        '[]'::json as transactions
+    FROM items i
+`;
+
+/**
+ * Hareketler olmadan ürün listesi. Her sayfa geçişinde çalışan senkronizasyon bunu
+ * kullanır; hareketlere ihtiyaç duyan raporlar getItems() ile tam veriyi ayrıca çeker.
+ */
+export async function getItemsLight() {
+    try {
+        const items = await sql`
+            ${ITEMS_SELECT_LIGHT}
+            ORDER BY i.updated_at DESC
+        `;
+        return mapDbRowsToStockItems(items);
+    } catch (error) {
+        console.error('Error fetching items (light):', error);
+        throw error;
+    }
+}
+
 export async function getItems() {
     try {
         // Index'ler yoksa json_agg alt sorgusu her ürün için transactions tablosunu

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ArrowRight, EyeOff, Package } from 'lucide-react';
-import { useStockStore } from '@/lib/store';
+import { useItemsWithTransactions } from '@/lib/use-items-with-transactions';
 import * as dbActions from '@/lib/actions';
 import { StockItem } from '@/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -118,7 +118,7 @@ const calculateItemCosts = (item: StockItem, monthlyRate: number, now: Date) => 
 };
 
 export default function NoSalesProductsPage() {
-    const items = useStockStore((state) => state.items);
+    const { items } = useItemsWithTransactions();
     const searchParams = useSearchParams();
 
     const yearStart = `${new Date().getFullYear()}-01-01`;

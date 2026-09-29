@@ -6,6 +6,7 @@ export const useStockStore = create<StockStore>()(
     persist(
         (set, get) => ({
             items: [],
+            itemsHaveTransactions: false,
             user: null,
             isAuthenticated: false,
             dbSyncStatus: 'idle',
@@ -52,7 +53,7 @@ export const useStockStore = create<StockStore>()(
             },
             login: (user) => set({ user, isAuthenticated: true }),
             logout: () => set({ user: null, isAuthenticated: false }),
-            setItems: (items) => set({ items }),
+            setItems: (items, withTransactions = false) => set({ items, itemsHaveTransactions: withTransactions }),
             setDbSyncStatus: (dbSyncStatus) => set({ dbSyncStatus }),
             removeTransactions: (ids) => set((state) => ({
                 items: state.items.map(item => {

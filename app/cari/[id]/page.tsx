@@ -196,7 +196,7 @@ export default function CariDetailPage() {
     const updated = await dbActions.getCustomerMovements(customerId);
     setRows(((updated as unknown as { rows?: MovementRow[] }).rows || []) as MovementRow[]);
     const nextItems = await dbActions.getItems();
-    setItems(nextItems || []);
+    setItems(nextItems || [], true);
   };
 
   const openEdit = (r: MovementRow) => {

@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { useStockStore } from '@/lib/store';
-import { getItems } from '@/lib/actions';
+import { getItemsLight } from '@/lib/actions';
 
 export default function DbSyncProvider({ children }: { children: React.ReactNode }) {
     const setItems = useStockStore((state) => state.setItems);
@@ -27,9 +27,9 @@ export default function DbSyncProvider({ children }: { children: React.ReactNode
             const MAX_ATTEMPTS = 3;
             for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
                 try {
-                    const dbItems = await getItems();
+                    const dbItems = await getItemsLight();
                     if (cancelled) return;
-                    setItems(dbItems ?? []);
+                    setItems(dbItems ?? [], false);
                     setDbSyncStatus('synced');
                     return;
                 } catch (e) {

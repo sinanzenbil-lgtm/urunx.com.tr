@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ArrowRight, Package, TrendingUp } from 'lucide-react';
-import { useStockStore } from '@/lib/store';
+import { useItemsWithTransactions } from '@/lib/use-items-with-transactions';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 
@@ -28,7 +28,7 @@ const formatCurrency = (value: number) =>
     }).format(Number(value) || 0);
 
 export default function TopSellingProductsPage() {
-    const items = useStockStore((state) => state.items);
+    const { items } = useItemsWithTransactions();
     const searchParams = useSearchParams();
 
     const yearStart = `${new Date().getFullYear()}-01-01`;
