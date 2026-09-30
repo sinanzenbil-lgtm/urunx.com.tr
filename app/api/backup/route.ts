@@ -4,14 +4,12 @@
  * POST /api/backup  { options?, createdBy? }
  *   → ZIP paketi (akış halinde döner; büyük paketlerde bellek şişmez)
  *
- * Ayarlar ekranındaki yedek tuşu tek tıkla çalışsın diye doğrulama istenmez.
- * Uygulamada sunucu tarafı oturum bulunmadığından bu uca istek atabilen
- * herkes paketi alabilir; erişimi daraltmak gerekirse girişte oturum çerezi
- * üretilip burada kontrol edilmelidir.
+ * Yalnızca geçerli oturum çerezi olan (giriş yapmış) kullanıcılar indirebilir.
  */
 import { backupEntries, backupFileName, createBackupContext } from '@/lib/backup';
 import { createZipStream } from '@/lib/zip-stream';
 import { DEFAULT_BACKUP_OPTIONS, type BackupOptions } from '@/types';
+import { getSession } from '@/lib/session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -61,6 +59,7 @@ function toReadableStream(generator: AsyncGenerator<Buffer>): ReadableStream<Uin
 }
 
 export async function POST(request: Request) {
+  if (!(await getSession())) return jsonError('unauthorized', 401);
   // Gövde isteğe bağlı: boş POST da varsayılan seçeneklerle tam yedek üretir.
   let body: { options?: unknown; createdBy?: unknown } = {};
   try {

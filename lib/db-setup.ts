@@ -1,9 +1,11 @@
 'use server';
 
 import { sql } from './db';
+import { requireSession } from './session';
 
 export async function setupDatabase() {
     try {
+        await requireSession();
         // Create customers (cariler) table
         await sql`
       CREATE TABLE IF NOT EXISTS customers (

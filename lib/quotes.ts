@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { sql } from './db';
 import { v4 as uuidv4 } from 'uuid';
+import { requireSession } from './session';
 import type { Quote, QuoteItem, QuoteSettings, QuoteStatus } from '@/types';
 import { DEFAULT_QUOTE_SETTINGS, QUOTE_STATUS_OPTIONS } from '@/types';
 
@@ -187,6 +188,7 @@ const QUOTE_SELECT = sql`
 /** Teklif listesi (en yeni önce) */
 export async function getQuotes(): Promise<Quote[]> {
     try {
+        await requireSession();
         await ensureQuotesSchema();
         const rows = await sql`
             ${QUOTE_SELECT}
@@ -202,6 +204,7 @@ export async function getQuotes(): Promise<Quote[]> {
 /** Tek teklif + satırları (görsel ürün tablosundan güncel okunur) */
 export async function getQuoteById(quoteId: string): Promise<{ success: boolean; quote: Quote | null; error?: string }> {
     try {
+        await requireSession();
         const id = String(quoteId || '').trim();
         if (!id) return { success: false, quote: null, error: 'quoteId is required' };
         await ensureQuotesSchema();
@@ -288,6 +291,7 @@ export type CreateQuoteInput = {
 
 export async function createQuote(payload: CreateQuoteInput): Promise<{ success: boolean; quoteId?: string; quoteNo?: string; error?: string }> {
     try {
+        await requireSession();
         await ensureQuotesSchema();
 
         const customerName = String(payload.customerName || '').trim();
@@ -435,6 +439,7 @@ async function insertQuoteLines(quoteId: string, normalized: ReturnType<typeof n
 
 export async function updateQuote(quoteId: string, payload: CreateQuoteInput): Promise<{ success: boolean; error?: string }> {
     try {
+        await requireSession();
         const id = String(quoteId || '').trim();
         if (!id) return { success: false, error: 'quoteId is required' };
         await ensureQuotesSchema();
@@ -492,6 +497,7 @@ export async function updateQuote(quoteId: string, payload: CreateQuoteInput): P
 
 export async function updateQuoteStatus(quoteId: string, status: QuoteStatus): Promise<{ success: boolean; error?: string }> {
     try {
+        await requireSession();
         const id = String(quoteId || '').trim();
         if (!id) return { success: false, error: 'quoteId is required' };
         if (!VALID_STATUSES.has(status)) return { success: false, error: 'Geçersiz durum' };
@@ -511,6 +517,7 @@ export async function updateQuoteStatus(quoteId: string, status: QuoteStatus): P
 
 export async function removeQuote(quoteId: string): Promise<{ success: boolean; error?: string }> {
     try {
+        await requireSession();
         const id = String(quoteId || '').trim();
         if (!id) return { success: false, error: 'quoteId is required' };
         await ensureQuotesSchema();
@@ -542,6 +549,7 @@ async function ensureQuoteSettingsSchema() {
 
 export async function getQuoteSettings(): Promise<{ success: boolean; settings: QuoteSettings; error?: string }> {
     try {
+        await requireSession();
         await ensureQuoteSettingsSchema();
         const rows = await sql`
             SELECT subtitle, title, validity_days AS "validityDays", default_note AS "defaultNote", terms, updated_at AS "updatedAt"
@@ -568,6 +576,7 @@ export async function getQuoteSettings(): Promise<{ success: boolean; settings: 
 
 export async function upsertQuoteSettings(payload: QuoteSettings): Promise<{ success: boolean; error?: string }> {
     try {
+        await requireSession();
         await ensureQuoteSettingsSchema();
         const subtitle = String(payload.subtitle ?? '').trim();
         const title = String(payload.title ?? '').trim();

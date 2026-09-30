@@ -3,6 +3,7 @@
 import { readBackupOverview, type BackupOverview } from './backup';
 import { sql } from './db';
 import { hashPassword, verifyPassword } from './password';
+import { createSession, requireSession } from './session';
 import {
     ALL_MENU_KEYS,
     ALWAYS_ON_MENU_KEYS,
@@ -207,6 +208,7 @@ const ITEMS_SELECT_LIGHT = sql`
  */
 export async function getItemsLight() {
     try {
+        await requireSession();
         const items = await sql`
             ${ITEMS_SELECT_LIGHT}
             ORDER BY i.updated_at DESC
@@ -220,6 +222,7 @@ export async function getItemsLight() {
 
 export async function getItems() {
     try {
+        await requireSession();
         // Index'ler yoksa json_agg alt sorgusu her ürün için transactions tablosunu
         // baştan sona tarar (çok yavaş). Index oluşumu başarısız olsa bile sorguyu çalıştır.
         await ensureTransactionIndexes().catch(() => {});
@@ -301,6 +304,7 @@ export async function getTransactionsPaginated(params: {
     endDate?: string; // ISO
 }): Promise<{ rows: MovementRow[]; total: number }> {
     try {
+        await requireSession();
         await ensureTransactionIndexes().catch(() => {});
 
         const limit = Math.min(Math.max(1, Math.floor(Number(params.limit) || 50)), 1000);
@@ -375,6 +379,7 @@ export async function getTransactionsPaginated(params: {
 /** Tek bir hareketi ürün + cari bilgisiyle getirir (hareket detay sayfası için). */
 export async function getTransactionById(id: string): Promise<MovementRow | null> {
     try {
+        await requireSession();
         const trimmed = String(id || '').trim();
         if (!trimmed) return null;
         await ensureTransactionIndexes().catch(() => {});
@@ -432,6 +437,7 @@ export async function getDashboardStats(): Promise<{
     brands: DashboardBrand[];
 }> {
     try {
+        await requireSession();
         const totalsRows = await sql`
             SELECT
                 COUNT(*)::int AS "totalItems",
@@ -486,6 +492,7 @@ export async function getSalesSummaryByChannel(
     Perakende: { buyTotal: number; sellTotal: number };
     Toptan: { buyTotal: number; sellTotal: number };
 }> {
+    await requireSession();
     const result = {
         Pazaryeri: { buyTotal: 0, sellTotal: 0 },
         Perakende: { buyTotal: 0, sellTotal: 0 },
@@ -530,6 +537,7 @@ export async function getSalesSummaryByChannel(
 
 export async function getItemsTotalCount(): Promise<number> {
     try {
+        await requireSession();
         const rows = await sql`SELECT COUNT(*)::int AS c FROM items`;
         const n = (rows as { c: number }[])[0]?.c;
         return Number(n) || 0;
@@ -541,6 +549,7 @@ export async function getItemsTotalCount(): Promise<number> {
 
 export async function getItemBrandAggregates(): Promise<{ brand: string; itemCount: number; totalQty: number }[]> {
     try {
+        await requireSession();
         const rows = await sql`
             SELECT
                 brand,
@@ -564,6 +573,7 @@ export async function getItemBrandAggregates(): Promise<{ brand: string; itemCou
 
 export async function getItemById(id: string): Promise<StockItem | null> {
     try {
+        await requireSession();
         const trimmed = String(id || '').trim();
         if (!trimmed) return null;
         const rows = await sql`
@@ -588,6 +598,7 @@ export async function getItemsPaginated(params: {
     sortDir: 'asc' | 'desc';
 }): Promise<{ items: StockItem[]; total: number }> {
     try {
+        await requireSession();
         const limit = Math.min(Math.max(1, Math.floor(Number(params.limit) || 20)), 100_000);
         const offset = Math.min(Math.max(0, Math.floor(Number(params.offset) || 0)), 100_000);
         const brand = (params.brand ?? '').trim() || undefined;
@@ -691,6 +702,7 @@ async function ensureCompanySettingsSchema() {
 
 export async function addItem(item: StockItem) {
     try {
+        await requireSession();
         await ensureItemsSchema();
         const row = normalizeItemForDb(item);
 
@@ -714,6 +726,7 @@ export async function addItem(item: StockItem) {
 
 export async function updateItem(id: string, updates: Partial<StockItem>) {
     try {
+        await requireSession();
         const updatedAt = new Date().toISOString();
 
         // Convert keys to snake_case for Postgres if necessary, but here we can just map manually
@@ -742,6 +755,7 @@ export async function updateItem(id: string, updates: Partial<StockItem>) {
 
 export async function removeItem(id: string) {
     try {
+        await requireSession();
         await sql`DELETE FROM items WHERE id = ${id}`;
         revalidatePath('/urunler');
         return { success: true };
@@ -753,6 +767,7 @@ export async function removeItem(id: string) {
 
 export async function addTransaction(itemId: string, transaction: Transaction) {
     try {
+        await requireSession();
         const unitPrice = Number(transaction.unitPrice) || 0;
         const totalPrice =
             Number(transaction.totalPrice) ||
@@ -792,6 +807,7 @@ export async function addTransaction(itemId: string, transaction: Transaction) {
 
 export async function bulkAddItems(items: StockItem[]) {
     try {
+        await requireSession();
         await ensureItemsSchema();
         // Process in batches of 50 to avoid timeout
         const BATCH_SIZE = 50;
@@ -851,6 +867,7 @@ export async function bulkAddItems(items: StockItem[]) {
 
 export async function bulkRemoveItems(ids: string[]) {
     try {
+        await requireSession();
         await sql`DELETE FROM items WHERE id = ANY(${ids})`;
         revalidatePath('/urunler');
         return { success: true };
@@ -862,6 +879,7 @@ export async function bulkRemoveItems(ids: string[]) {
 
 export async function removeTransactions(transactionIds: string[]) {
     try {
+        await requireSession();
         const transactions = await sql`
             SELECT id, item_id, customer_id, type, quantity 
             FROM transactions 
@@ -907,6 +925,7 @@ export async function removeTransactions(transactionIds: string[]) {
 
 export async function updateCustomer(customerId: string, payload: { customerCode?: string; name?: string; openingBalance?: number; address?: string; phone?: string }) {
     try {
+        await requireSession();
         await ensureCustomersSchema();
         const id = (customerId || '').trim();
         if (!id) return { success: false, error: 'customerId is required' };
@@ -950,6 +969,7 @@ export async function updateCustomer(customerId: string, payload: { customerCode
 
 export async function removeCustomer(customerId: string) {
     try {
+        await requireSession();
         const id = (customerId || '').trim();
         if (!id) return { success: false, error: 'customerId is required' };
 
@@ -980,6 +1000,7 @@ export async function updateTransaction(
     }
 ) {
     try {
+        await requireSession();
         const id = (transactionId || '').trim();
         if (!id) return { success: false, error: 'transactionId is required' };
 
@@ -1076,6 +1097,7 @@ export async function updateCustomerPayment(
     }
 ) {
     try {
+        await requireSession();
         await ensureCustomerPaymentsSchema();
         const id = (paymentId || '').trim();
         if (!id) return { success: false, error: 'paymentId is required' };
@@ -1126,6 +1148,7 @@ export async function updateCustomerPayment(
 
 export async function removeCustomerPayments(paymentIds: string[]) {
     try {
+        await requireSession();
         await ensureCustomerPaymentsSchema();
         if (!paymentIds?.length) return { success: true };
         const rows = await sql`
@@ -1150,6 +1173,7 @@ export async function removeCustomerPayments(paymentIds: string[]) {
 
 export async function getCustomers() {
     try {
+        await requireSession();
         await ensureCustomersSchema();
         await ensureCustomerPaymentsSchema();
         const customers = await sql`
@@ -1262,6 +1286,7 @@ export async function getCustomers() {
 
 export async function getCustomerById(customerId: string) {
     try {
+        await requireSession();
         const id = (customerId || '').trim();
         if (!id) return { success: false, error: 'customerId is required', customer: null as Customer | null };
         const customers = await getCustomers();
@@ -1274,7 +1299,7 @@ export async function getCustomerById(customerId: string) {
     }
 }
 
-export async function getCompanySettings() {
+async function readCompanySettings() {
     try {
         await ensureCompanySettingsSchema();
         const rows = await sql`
@@ -1322,8 +1347,13 @@ export async function getCompanySettings() {
     }
 }
 
+export async function getCompanySettings() {
+    return readCompanySettings();
+}
+
 export async function upsertCompanySettings(payload: CompanySettings) {
     try {
+        await requireSession();
         await ensureCompanySettingsSchema();
         const companyName = (payload.companyName || '').trim();
         const tradeName = (payload.tradeName || '').trim();
@@ -1360,6 +1390,7 @@ export async function upsertCompanySettings(payload: CompanySettings) {
 
 export async function addCustomer(payload: { customerCode?: string; name: string; openingBalance?: number; openingBalanceDate?: string; address?: string; phone?: string }) {
     try {
+        await requireSession();
         await ensureCustomersSchema();
         const name = (payload.name || '').trim();
         if (!name) return { success: false, error: 'Name is required' };
@@ -1400,6 +1431,7 @@ export async function addCustomer(payload: { customerCode?: string; name: string
 
 export async function getCustomerMovements(customerId: string) {
     try {
+        await requireSession();
         await ensureCustomersSchema();
         await ensureCustomerPaymentsSchema();
         const rows = await sql`
@@ -1494,6 +1526,7 @@ export async function addCustomerPayment(payload: {
     description?: string;
 }) {
     try {
+        await requireSession();
         await ensureCustomerPaymentsSchema();
         const customerId = (payload.customerId || '').trim();
         const amount = Number(payload.amount) || 0;
@@ -1627,6 +1660,7 @@ export async function completeFirstSetup(payload: {
             salesPerakende: true,
             salesToptan: true,
         };
+        await createSession({ id, username });
         revalidatePath('/ayarlar');
         revalidatePath('/login');
         return { success: true as const, user };
@@ -1662,11 +1696,36 @@ function rowToUser(
     };
 }
 
+/** Basit giriş denemesi sınırı (süreç belleği): 5 hatalı denemeden sonra 60 sn bekletir */
+const loginAttempts = new Map<string, { count: number; until: number }>();
+const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_LOCK_MS = 60_000;
+
+function loginLocked(key: string): boolean {
+    const rec = loginAttempts.get(key);
+    if (!rec) return false;
+    if (rec.until > Date.now()) return true;
+    if (rec.until !== 0 && rec.until <= Date.now()) loginAttempts.delete(key);
+    return false;
+}
+
+function loginFailed(key: string) {
+    const rec = loginAttempts.get(key) || { count: 0, until: 0 };
+    rec.count += 1;
+    if (rec.count >= LOGIN_MAX_ATTEMPTS) {
+        rec.until = Date.now() + LOGIN_LOCK_MS;
+        rec.count = 0;
+    }
+    loginAttempts.set(key, rec);
+}
+
 export async function loginWithUsername(username: string, password: string) {
     try {
         await ensureMembersTable();
         const u = (username || '').trim();
         if (!u || !password) return { success: false as const, error: 'missing' };
+        const attemptKey = u.toLowerCase();
+        if (loginLocked(attemptKey)) return { success: false as const, error: 'locked' as const };
         const rows = await sql`
             SELECT
                 id,
@@ -1682,7 +1741,10 @@ export async function loginWithUsername(username: string, password: string) {
             WHERE lower(username) = lower(${u})
             LIMIT 1
         `;
-        if (!rows.length) return { success: false as const, error: 'invalid' };
+        if (!rows.length) {
+            loginFailed(attemptKey);
+            return { success: false as const, error: 'invalid' };
+        }
         const row = rows[0] as {
             id: string;
             username: string;
@@ -1694,14 +1756,19 @@ export async function loginWithUsername(username: string, password: string) {
             sales_perakende: boolean | null;
             sales_toptan: boolean | null;
         };
-        if (!verifyPassword(password, row.password_hash)) return { success: false as const, error: 'invalid' };
-        const settingsRes = await getCompanySettings();
+        if (!verifyPassword(password, row.password_hash)) {
+            loginFailed(attemptKey);
+            return { success: false as const, error: 'invalid' };
+        }
+        loginAttempts.delete(attemptKey);
+        const settingsRes = await readCompanySettings();
         const fromSettings =
             settingsRes.success && settingsRes.settings?.companyName
                 ? settingsRes.settings.companyName.trim()
                 : '';
         const companyName = fromSettings || (row.company_name || '').trim() || 'SPEEDSPOR';
         const user = rowToUser(row, companyName);
+        await createSession({ id: row.id, username: row.username });
         return { success: true as const, user };
     } catch (error) {
         console.error('loginWithUsername:', error);
@@ -1711,6 +1778,7 @@ export async function loginWithUsername(username: string, password: string) {
 
 export async function listMembers(): Promise<{ success: boolean; members: MemberPublic[]; error?: unknown }> {
     try {
+        await requireSession();
         await ensureMembersTable();
         const rows = await sql`
             SELECT id, username, first_name, last_name, menu_routes, sales_perakende, sales_toptan
@@ -1746,6 +1814,7 @@ export async function createMember(payload: {
     salesToptan: boolean;
 }) {
     try {
+        await requireSession();
         await ensureMembersTable();
         const firstName = (payload.firstName || '').trim();
         const lastName = (payload.lastName || '').trim();
@@ -1798,6 +1867,7 @@ export async function createMember(payload: {
 
 export async function deleteMember(memberId: string, currentUserId?: string) {
     try {
+        await requireSession();
         await ensureMembersTable();
         const id = (memberId || '').trim();
         if (!id) return { success: false as const, error: 'id' };
@@ -1815,6 +1885,7 @@ export async function deleteMember(memberId: string, currentUserId?: string) {
 
 export async function updateMemberPassword(memberId: string, newPassword: string) {
     try {
+        await requireSession();
         await ensureMembersTable();
         const id = (memberId || '').trim();
         const pw = newPassword || '';
@@ -1835,6 +1906,7 @@ export async function getBackupOverview(): Promise<
     { success: true; overview: BackupOverview } | { success: false; error: string }
 > {
     try {
+        await requireSession();
         const overview = await readBackupOverview();
         return { success: true, overview };
     } catch (error) {

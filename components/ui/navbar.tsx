@@ -7,6 +7,8 @@ import { cn } from '@/lib/utils';
 import { LayoutDashboard, LogIn, LogOut, Search, Package, History, BarChart3, ShoppingCart, Users, RotateCcw, Settings, FileText } from 'lucide-react';
 import type { MenuRouteKey } from '@/types';
 import { effectiveMenuRoutes, pathnameMatchesRoute } from '@/lib/route-access';
+import { logoutSession } from '@/lib/auth-actions';
+import { useRouter } from 'next/navigation';
 
 const iconByKey: Record<MenuRouteKey, typeof LayoutDashboard> = {
     ozet: LayoutDashboard,
@@ -41,6 +43,16 @@ const routes: { href: string; label: string; key: MenuRouteKey }[] = [
 export default function Navbar() {
     const pathname = usePathname();
     const user = useStockStore((state) => state.user);
+    const logout = useStockStore((state) => state.logout);
+    const router = useRouter();
+    const handleLogout = async () => {
+        try {
+            await logoutSession();
+        } finally {
+            logout();
+            router.replace('/login');
+        }
+    };
     const allowed = new Set(effectiveMenuRoutes(user));
 
     const visibleRoutes = routes.filter((r) => allowed.has(r.key));
@@ -77,6 +89,17 @@ export default function Navbar() {
                             </Link>
                         );
                     })}
+                    {user ? (
+                        <button
+                            type="button"
+                            onClick={handleLogout}
+                            title="Oturumu kapat"
+                            className="px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 text-zinc-500 hover:text-rose-300 hover:bg-white/5"
+                        >
+                            <LogOut size={18} />
+                            <span className="hidden lg:inline">Çıkış</span>
+                        </button>
+                    ) : null}
                 </div>
             </div>
         </nav>

@@ -49,7 +49,7 @@ export default function LoginPage() {
         try {
             const res = await dbActions.loginWithUsername(username.trim(), password);
             if (!res.success) {
-                toast.error('Üye adı veya şifre hatalı');
+                toast.error(res.error === 'locked' ? 'Çok fazla hatalı deneme. 1 dakika sonra tekrar deneyin.' : 'Üye adı veya şifre hatalı');
                 return;
             }
             login(res.user);
